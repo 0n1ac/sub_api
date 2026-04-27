@@ -1,66 +1,83 @@
-# sub_api
+# 🚀 sub_api
 
-Use your AI subscription CLIs as a lightweight local API.
+**Turn your AI CLI tools into a lightweight local API.**
 
-`sub_api` lets personal users call Gemini CLI, Claude Code, and Codex CLI from Python code or through an optional OpenAI-compatible local server. The core package is library-first: you can import it directly without running a web server. Server mode is available when you need compatibility with tools that expect an OpenAI-style `/v1/chat/completions` endpoint.
+`sub_api` lets you call the Gemini CLI, Claude Code, and Codex CLI directly from your Python code, or via an optional **OpenAI-compatible local server**. 
 
-> This project is intended for personal use with your own authenticated CLI tools. You are responsible for following each provider's terms and usage limits.
+If you already pay for AI subscriptions and use their official CLI tools, `sub_api` helps you integrate them into your own scripts or use them with editors like Cursor and Open WebUI—without needing an extra API key!
 
-## Features
+> ⚠️ **Note:** This project is intended for personal use with your own authenticated CLI tools. You are responsible for following each provider's terms and usage limits.
 
-- Direct Python API with no HTTP server required
-- OpenAI-style `client.chat.completions.create(...)` interface
-- Optional OpenAI-compatible FastAPI server
-- CLI commands for one-shot prompts, status checks, and server mode
-- Stateless subprocess calls to Gemini, Claude, and Codex CLIs
+## 📖 Table of Contents
 
-## Installation
+- [✨ Features](#-features)
+- [📦 Installation](#-installation)
+- [🛠️ Prerequisites](#️-prerequisites)
+- [🚀 Quick Start](#-quick-start)
+- [🔌 Using with External Tools](#-using-with-external-tools)
+- [📚 Documentation](#-documentation)
+- [⚠️ Current Limitations](#️-current-limitations)
+- [📄 License](#-license)
 
-Core library only:
+## ✨ Features
+
+- **Library-First:** Direct Python API with no HTTP server required.
+- **OpenAI-Compatible:** Drop-in `client.chat.completions.create(...)` interface.
+- **Server Mode:** Run a local FastAPI server to use with Cursor, Continue, or Open WebUI.
+- **Handy CLI:** Run one-shot prompts, check status, or spin up the server from your terminal.
+- **Stateless & Simple:** Just wraps subprocess calls to the official CLIs you already have installed.
+
+## 📦 Installation
+
+Install the core library directly from GitHub:
 
 ```bash
-pip install sub_api
+pip install "sub_api @ git+https://github.com/0n1ac/sub_api.git"
 ```
 
-With OpenAI-compatible server support:
+Install with OpenAI-compatible server support:
 
 ```bash
-pip install "sub_api[server]"
+pip install "sub_api[server] @ git+https://github.com/0n1ac/sub_api.git"
 ```
 
-From a local checkout:
+From source for development:
 
 ```bash
+git clone https://github.com/0n1ac/sub_api.git
+cd sub_api
 python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[server]"
 ```
 
-This project uses the standard `src/` layout. The import package is still `sub_api`.
+`sub_api` is not currently published to PyPI, so `pip install sub_api` will not work unless the package is published there in the future.
 
-## Prerequisites
+## 🛠️ Prerequisites
 
-Install and authenticate at least one supported backend CLI yourself.
+You need to install and authenticate at least one supported backend CLI on your machine.
 
-| Model | CLI | Example setup |
+| Model | Supported CLI | Example Setup |
 |---|---|---|
-| `gemini` | Gemini CLI | `npm install -g @google/gemini-cli` then `gemini auth` |
-| `claude` | Claude Code | `npm install -g @anthropic-ai/claude-code` then `claude login` |
-| `codex` | Codex CLI | `npm install -g @openai/codex` then `codex login` |
+| `gemini` | Gemini CLI | `npm install -g @google/gemini-cli` <br/> `gemini auth` |
+| `claude` | Claude Code | `npm install -g @anthropic-ai/claude-code` <br/> `claude login` |
+| `codex` | Codex CLI | `npm install -g @openai/codex` <br/> `codex login` |
 
-## Quick Start
+For Gemini, `sub_api` sets `GEMINI_CLI_TRUST_WORKSPACE=true` only for the spawned Gemini CLI process. This avoids trusted-directory prompts in headless usage without changing your global shell environment.
 
-Use it directly from Python:
+## 🚀 Quick Start
+
+### 1. Direct Python Usage
 
 ```python
 from sub_api import SubApiClient
 
 client = SubApiClient()
-answer = client.call(model="gemini", prompt="Hello")
+answer = client.call(model="gemini", prompt="Hello!")
 print(answer)
 ```
 
-Use the OpenAI-style interface:
+### 2. OpenAI-Style Interface
 
 ```python
 from sub_api import SubApiClient
@@ -68,25 +85,31 @@ from sub_api import SubApiClient
 client = SubApiClient()
 response = client.chat.completions.create(
     model="gemini",
-    messages=[{"role": "user", "content": "Hello"}],
+    messages=[{"role": "user", "content": "Hello!"}],
 )
 
 print(response.choices[0].message.content)
 ```
 
-Run a one-shot prompt from the shell:
+### 3. Terminal CLI
 
 ```bash
+# Ask a quick question
 sub_api ask "Explain this project in one sentence." --model gemini
+
+# Pipe input
+echo "Summarize this text" | sub_api ask --model claude
 ```
 
-Run the optional OpenAI-compatible server:
+### 4. Local API Server
+
+Spin up the server to expose an OpenAI-compatible endpoint:
 
 ```bash
 sub_api serve --host 127.0.0.1 --port 8000
 ```
 
-Then call it with an OpenAI-compatible client:
+Then call it just like the OpenAI API:
 
 ```bash
 curl http://127.0.0.1:8000/v1/chat/completions \
@@ -94,17 +117,17 @@ curl http://127.0.0.1:8000/v1/chat/completions \
   -d '{"model":"gemini","messages":[{"role":"user","content":"hi"}]}'
 ```
 
-## External Tool Setup
+## 🔌 Using with External Tools
 
-For Cursor, Continue, Open WebUI, or similar tools:
+Want to use your CLI tools with Cursor, Continue, or Open WebUI? Just point them to your local server:
 
 ```text
 Base URL: http://localhost:8000/v1
-API Key: dummy
-Model: gemini
+API Key: dummy (or anything)
+Model: gemini (or claude, codex)
 ```
 
-LangChain example:
+### LangChain Integration
 
 ```python
 from langchain_openai import ChatOpenAI
@@ -116,7 +139,7 @@ llm = ChatOpenAI(
 )
 ```
 
-LiteLLM example:
+### LiteLLM Integration
 
 ```python
 import litellm
@@ -128,29 +151,20 @@ response = litellm.completion(
 )
 ```
 
-## CLI
+## 📚 Documentation
 
-```bash
-sub_api ask "Hello" --model gemini
-echo "Summarize this" | sub_api ask --model claude
-sub_api status
-sub_api serve --port 8000
-sub_api version
-```
+For more details, check out the full guides:
+- [Usage Guide (English)](docs/USAGE.en.md)
+- [사용법 문서 (Korean)](docs/USAGE.ko.md)
 
-## Documentation
+## ⚠️ Current Limitations
 
-- [Usage Guide](docs/USAGE.en.md)
-- [사용법 문서](docs/USAGE.ko.md)
-
-## Current Limitations
-
-- No streaming responses yet
-- No tool/function calling yet
+- No streaming responses (yet)
+- No tool/function calling
 - No token usage accounting
-- Message arrays are serialized into a single prompt string
-- CLI output formats may change across upstream CLI versions
+- Message arrays are serialized into a single prompt string under the hood
+- CLI output formats might break if upstream tools change their output structure
 
-## License
+## 📄 License
 
 MIT
