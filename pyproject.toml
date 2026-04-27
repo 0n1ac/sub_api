@@ -1,0 +1,36 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sub_api"
+version = "0.2.0"
+description = "Use AI subscription CLIs as a lightweight Python library or OpenAI-compatible local server."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = [
+    "pydantic>=2.0,<3.0",
+]
+
+[project.optional-dependencies]
+server = [
+    "fastapi>=0.110,<1.0",
+    "uvicorn[standard]>=0.27,<1.0",
+]
+
+[project.scripts]
+sub_api = "sub_api.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sub_api"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/sub_api",
+    "README.md",
+    "LICENSE",
+    "docs",
+    "examples",
+    "pyproject.toml",
+]
