@@ -32,6 +32,10 @@ class FakeBackend:
             ),
         )
 
+    def stream(self, prompt: str, model: str | None = None):
+        yield "fake "
+        yield f"stream ({model or 'default'}): {prompt}"
+
 
 def main() -> None:
     # Patch only the backend factory used by SubApiClient. This keeps the public
@@ -83,6 +87,21 @@ def main() -> None:
 
         assert all(result.latency.queued is not None for result in limited_results)
         assert max(result.latency.queued or 0 for result in limited_results) > 0
+
+        # Streaming returns OpenAI-style chunks when stream=True.
+        chunks = list(
+            client.chat.completions.create(
+                model="gemini/gemini-2.5-pro",
+                messages=[{"role": "user", "content": "Hello"}],
+                stream=True,
+            )
+        )
+        assert chunks[0].choices[0].delta.role == "assistant"
+        assert chunks[-1].choices[0].finish_reason == "stop"
+        streamed_text = "".join(
+            chunk.choices[0].delta.content or "" for chunk in chunks
+        )
+        assert streamed_text == "fake stream (gemini-2.5-pro): user: Hello"
 
     # A short success message keeps this script useful in CI or quick local checks.
     print("direct client smoke test passed")

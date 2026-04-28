@@ -125,6 +125,18 @@ print(response.usage)
 print(response.sub_api["usage"]["source"])
 ```
 
+**Streaming call:**
+```python
+stream = client.chat.completions.create(
+    model="claude/sonnet",
+    messages=[{"role": "user", "content": "Write a short intro."}],
+    stream=True,
+)
+
+for chunk in stream:
+    print(chunk.choices[0].delta.content or "", end="")
+```
+
 **Check backend availability:**
 ```python
 from sub_api import SubApiClient
@@ -146,6 +158,11 @@ sub_api ask "Explain decorators in Python." --backend gemini --model gemini-2.5-
 **Print latency and token stats:**
 ```bash
 sub_api ask "Explain decorators in Python." --backend gemini --stats
+```
+
+**Stream output:**
+```bash
+sub_api ask "Write a short intro." --backend claude --stream
 ```
 
 **Pipe content from standard input:**
@@ -172,6 +189,7 @@ We've included some handy scripts to help you test things out.
 python examples/direct_call.py "Hello" --backend gemini --model gemini-2.5-pro
 echo "Summarize this" | python examples/direct_call.py --backend claude --model sonnet
 python examples/direct_call.py "Hello" --backend gemini --stats
+python examples/direct_call.py "Write a short intro" --backend claude --stream
 ```
 
 **Run a quick smoke test (mocks the backend, no auth needed):**
@@ -204,6 +222,19 @@ curl http://127.0.0.1:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gemini/gemini-2.5-pro",
+    "messages": [
+      {"role": "user", "content": "Hello"}
+    ]
+  }'
+```
+
+**Streaming API call:**
+```bash
+curl -N http://127.0.0.1:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "claude/sonnet",
+    "stream": true,
     "messages": [
       {"role": "user", "content": "Hello"}
     ]
@@ -325,8 +356,8 @@ Possible sources:
 ## ⚠️ Limitations
 
 A few things to keep in mind:
-- Streaming responses aren't supported yet.
 - Tool/function calling isn't supported.
 - Multimodal inputs (like images) aren't supported.
 - Token usage is provided, but may be estimated depending on `sub_api.usage.source`.
 - Under the hood, array messages are flattened into a single string prompt before hitting the backend CLI.
+- Some backend CLIs may emit stdout only after the final answer; in that case streaming falls back to a single final content chunk.

@@ -125,6 +125,19 @@ print(response.usage)
 print(response.sub_api["usage"]["source"])
 ```
 
+Streaming uses the same OpenAI-style interface:
+
+```python
+stream = client.chat.completions.create(
+    model="claude/sonnet",
+    messages=[{"role": "user", "content": "Write a short intro."}],
+    stream=True,
+)
+
+for chunk in stream:
+    print(chunk.choices[0].delta.content or "", end="")
+```
+
 ### 3. Terminal CLI
 
 ```bash
@@ -136,6 +149,9 @@ echo "Summarize this text" | sub_api ask --backend claude --model sonnet
 
 # Print latency stats to stderr
 sub_api ask "Hello" --backend gemini --stats
+
+# Stream chunks when the backend exposes stdout incrementally
+sub_api ask "Write a short intro." --backend claude --stream
 ```
 
 ### 4. Local API Server
@@ -152,6 +168,14 @@ Then call it just like the OpenAI API:
 curl http://127.0.0.1:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model":"gemini/gemini-2.5-pro","messages":[{"role":"user","content":"hi"}]}'
+```
+
+For Server-Sent Events streaming, pass `"stream": true`:
+
+```bash
+curl -N http://127.0.0.1:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"claude/sonnet","stream":true,"messages":[{"role":"user","content":"hi"}]}'
 ```
 
 ## 🔌 Using with External Tools
@@ -196,11 +220,11 @@ For more details, check out the full guides:
 
 ## ⚠️ Current Limitations
 
-- No streaming responses (yet)
 - No tool/function calling
 - Token usage may be estimated depending on `sub_api.usage.source`
 - Message arrays are serialized into a single prompt string under the hood
 - CLI output formats might break if upstream tools change their output structure
+- Some backend CLIs may emit stdout only after the final answer; in that case streaming falls back to a single final content chunk
 
 ## Latency Stats
 

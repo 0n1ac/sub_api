@@ -182,6 +182,7 @@ class Backend(ABC):
 
                 events = selector.select(timeout=min(0.1, remaining))
                 if not events and process.poll() is not None:
+                    _drain_ready_streams(selector)
                     break
 
                 for key, _ in events:
@@ -266,7 +267,6 @@ class Backend(ABC):
 
                 events = selector.select(timeout=min(0.1, remaining))
                 if not events and process.poll() is not None:
-                    _drain_ready_streams(selector)
                     break
 
                 for key, _ in events:
@@ -299,6 +299,13 @@ class Backend(ABC):
             selector.close()
             if process.poll() is None:
                 _kill_process_group(process.pid)
+
+        remaining_stdout = process.stdout.read()
+        if remaining_stdout:
+            yield remaining_stdout.decode("utf-8", errors="replace")
+        remaining_stderr = process.stderr.read()
+        if remaining_stderr:
+            stderr_chunks.append(remaining_stderr)
 
         stderr = b"".join(stderr_chunks).decode("utf-8", errors="replace")
         if return_code != 0:

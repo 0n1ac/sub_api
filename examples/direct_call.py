@@ -21,6 +21,11 @@ def main() -> int:
     )
     parser.add_argument("--timeout", type=float, default=60.0)
     parser.add_argument("--stats", action="store_true", help="Print latency stats to stderr.")
+    parser.add_argument(
+        "--stream",
+        action="store_true",
+        help="Print chunks as they arrive when the selected backend supports streaming stdout.",
+    )
     args = parser.parse_args()
 
     # Accept either a positional prompt:
@@ -37,6 +42,20 @@ def main() -> int:
     client = SubApiClient(timeout=args.timeout)
 
     try:
+        if args.stream:
+            # Streaming still uses the same backend/model selection path. Some
+            # CLIs only emit stdout after the final answer; those backends fall
+            # back to printing one final chunk.
+            for chunk in client.stream(
+                prompt=prompt,
+                backend=args.backend,
+                model=args.model,
+                timeout=args.timeout,
+            ):
+                print(chunk, end="", flush=True)
+            print()
+            return 0
+
         result = client.call_result(
             prompt=prompt,
             backend=args.backend,
