@@ -257,7 +257,8 @@ SUB_API_DEFAULT_MODEL_CODEX=gpt-5
     "backend": "gemini",
     "latency_ms": {
       "total": 2431,
-      "spawn": 180,
+      "spawn": 12,
+      "first_stdout": 2180,
       "execution": 2120,
       "parse": 131
     }
@@ -265,8 +266,9 @@ SUB_API_DEFAULT_MODEL_CODEX=gpt-5
 }
 ```
 
-- `spawn`: subprocess 시작 ~ 첫 stdout byte 직전까지의 시간
-- `execution`: 첫 stdout byte ~ 마지막 stdout byte까지의 시간
+- `spawn`: 프로세스 생성 오버헤드
+- `first_stdout`: 첫 stdout byte가 나오기까지 걸린 시간
+- `execution`: 프로세스 실행 시간
 - `parse`: stdout 파싱 / JSON 디코딩 시간
 - `total`: 별도로 측정한 wall-clock 시간이며, 나머지 필드의 합이 아닙니다.
 

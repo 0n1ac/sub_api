@@ -257,7 +257,8 @@ SUB_API_DEFAULT_MODEL_CODEX=gpt-5
     "backend": "gemini",
     "latency_ms": {
       "total": 2431,
-      "spawn": 180,
+      "spawn": 12,
+      "first_stdout": 2180,
       "execution": 2120,
       "parse": 131
     }
@@ -265,8 +266,9 @@ SUB_API_DEFAULT_MODEL_CODEX=gpt-5
 }
 ```
 
-- `spawn`: subprocess start through the first stdout byte
-- `execution`: first stdout byte through the last stdout byte
+- `spawn`: process creation overhead
+- `first_stdout`: time until the first stdout byte
+- `execution`: process runtime
 - `parse`: stdout parsing / JSON decoding time
 - `total`: separately measured wall-clock time, not the sum of the other fields
 

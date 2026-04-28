@@ -20,6 +20,7 @@ from sub_api.core.schema import ChatMessage
 class LatencyStats:
     total: int | None = None
     spawn: int | None = None
+    first_stdout: int | None = None
     execution: int | None = None
     parse: int | None = None
 
@@ -27,6 +28,7 @@ class LatencyStats:
         return {
             "total": self.total,
             "spawn": self.spawn,
+            "first_stdout": self.first_stdout,
             "execution": self.execution,
             "parse": self.parse,
         }
@@ -90,6 +92,7 @@ class Backend(ABC):
         latency = LatencyStats(
             total=_elapsed_ms(total_start),
             spawn=exec_result.latency.spawn,
+            first_stdout=exec_result.latency.first_stdout,
             execution=exec_result.latency.execution,
             parse=parse_ms,
         )
@@ -139,6 +142,8 @@ class Backend(ABC):
             env=dict(env) if env is not None else None,
             start_new_session=True,
         )
+        process_started_at = time.perf_counter()
+        spawn_ms = _interval_ms(total_start, process_started_at)
 
         stdout_chunks: list[bytes] = []
         stderr_chunks: list[bytes] = []
@@ -188,6 +193,7 @@ class Backend(ABC):
 
             try:
                 return_code = process.wait(timeout=1)
+                process_finished_at = time.perf_counter()
             except subprocess.TimeoutExpired as exc:
                 _kill_process_group(process.pid)
                 _drain_process_pipes(process, stdout_chunks, stderr_chunks)
@@ -207,8 +213,9 @@ class Backend(ABC):
         return ExecResult(
             stdout=stdout,
             latency=LatencyStats(
-                spawn=_interval_ms(total_start, first_stdout_at),
-                execution=_interval_ms(first_stdout_at, last_stdout_at),
+                spawn=spawn_ms,
+                first_stdout=_interval_ms(total_start, first_stdout_at),
+                execution=_interval_ms(process_started_at, process_finished_at),
             ),
         )
 

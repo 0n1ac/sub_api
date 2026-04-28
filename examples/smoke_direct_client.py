@@ -18,7 +18,7 @@ class FakeBackend:
         model_label = model or "default"
         return BackendResult(
             content=f"fake response ({model_label}): {prompt}",
-            latency=LatencyStats(total=12, spawn=1, execution=10, parse=1),
+            latency=LatencyStats(total=12, spawn=1, first_stdout=2, execution=10, parse=1),
             usage=TokenUsage(
                 prompt_tokens=2,
                 completion_tokens=3,

@@ -205,7 +205,8 @@ OpenAI-style responses include `sub_api.latency_ms`:
     "backend": "gemini",
     "latency_ms": {
       "total": 2431,
-      "spawn": 180,
+      "spawn": 12,
+      "first_stdout": 2180,
       "execution": 2120,
       "parse": 131
     }
@@ -213,7 +214,7 @@ OpenAI-style responses include `sub_api.latency_ms`:
 }
 ```
 
-`spawn` measures subprocess start through the first stdout byte, `execution` measures first stdout byte through the last stdout byte, and `parse` measures output parsing time. `total` is measured separately as wall-clock time. Stage values may be `null` if a stage cannot be measured.
+`spawn` measures process creation overhead, `first_stdout` measures time until the first stdout byte, `execution` measures process runtime, and `parse` measures output parsing time. `total` is measured separately as wall-clock time. Stage values may be `null` if a stage cannot be measured.
 
 ## Token Stats
 

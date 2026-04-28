@@ -92,7 +92,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
 def _format_latency_stats(stats: dict[str, int | None]) -> str:
     parts = []
-    for key in ("total", "spawn", "execution", "parse"):
+    for key in ("total", "spawn", "first_stdout", "execution", "parse"):
         value = stats.get(key)
         rendered = "null" if value is None else f"{value}ms"
         parts.append(f"{key}={rendered}")
