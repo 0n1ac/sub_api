@@ -9,12 +9,13 @@ from sub_api.core.backends.base import Backend, parse_jsonish_text
 class GeminiBackend(Backend):
     cli_name = "gemini"
 
-    def run_cli(self, prompt: str) -> str:
+    def run_cli(self, prompt: str, model: str | None = None) -> str:
         env = os.environ.copy()
         env.setdefault("GEMINI_CLI_TRUST_WORKSPACE", "true")
 
         return self._exec(
             self.cli_name,
+            *self._model_args(model),
             "-p",
             prompt,
             "--output-format",

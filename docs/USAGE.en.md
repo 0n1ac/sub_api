@@ -71,7 +71,11 @@ Using `sub_api` in your Python code is super straightforward.
 from sub_api import SubApiClient
 
 client = SubApiClient()
-answer = client.call(model="gemini", prompt="Hello!")
+answer = client.call(
+    prompt="Hello!",
+    backend="gemini",
+    model="gemini-2.5-pro",  # optional; omit to use the CLI's default model
+)
 print(answer)
 ```
 
@@ -82,7 +86,7 @@ from sub_api import SubApiClient
 
 client = SubApiClient()
 response = client.chat.completions.create(
-    model="gemini",
+    model="gemini/gemini-2.5-pro",
     messages=[{"role": "user", "content": "Hello!"}],
 )
 
@@ -104,12 +108,12 @@ You can also use `sub_api` straight from your terminal!
 
 **Ask a quick question:**
 ```bash
-sub_api ask "Explain decorators in Python." --model gemini
+sub_api ask "Explain decorators in Python." --backend gemini --model gemini-2.5-pro
 ```
 
 **Pipe content from standard input:**
 ```bash
-echo "Review this code" | sub_api ask --model claude
+echo "Review this code" | sub_api ask --backend claude --model sonnet
 ```
 
 **Check the status of your installed backends:**
@@ -128,8 +132,8 @@ We've included some handy scripts to help you test things out.
 
 **Test a real backend CLI (no server required):**
 ```bash
-python examples/direct_call.py "Hello" --model gemini
-echo "Summarize this" | python examples/direct_call.py --model claude
+python examples/direct_call.py "Hello" --backend gemini --model gemini-2.5-pro
+echo "Summarize this" | python examples/direct_call.py --backend claude --model sonnet
 ```
 
 **Run a quick smoke test (mocks the backend, no auth needed):**
@@ -161,7 +165,7 @@ curl http://127.0.0.1:8000/v1/models
 curl http://127.0.0.1:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gemini",
+    "model": "gemini/gemini-2.5-pro",
     "messages": [
       {"role": "user", "content": "Hello"}
     ]
@@ -175,7 +179,7 @@ If you're plugging `sub_api` into tools like Cursor, Continue, Open WebUI, or An
 ```text
 Base URL: http://localhost:8000/v1
 API Key: dummy
-Model: gemini (or claude, codex)
+Model: gemini/gemini-2.5-pro (or claude/sonnet, codex/gpt-5)
 ```
 
 ## 🚨 Error Handling
@@ -206,6 +210,10 @@ HOST=127.0.0.1
 PORT=8000
 TIMEOUT=60
 DEFAULT_BACKEND=gemini
+# Optional. Omit to use each CLI's native default model.
+SUB_API_DEFAULT_MODEL_GEMINI=gemini-2.5-pro
+SUB_API_DEFAULT_MODEL_CLAUDE=sonnet
+SUB_API_DEFAULT_MODEL_CODEX=gpt-5
 ```
 
 ## ⚠️ Limitations

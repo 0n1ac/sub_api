@@ -73,7 +73,11 @@ For Gemini, `sub_api` sets `GEMINI_CLI_TRUST_WORKSPACE=true` only for the spawne
 from sub_api import SubApiClient
 
 client = SubApiClient()
-answer = client.call(model="gemini", prompt="Hello!")
+answer = client.call(
+    prompt="Hello!",
+    backend="gemini",
+    model="gemini-2.5-pro",  # optional; omit to use the CLI's default model
+)
 print(answer)
 ```
 
@@ -84,7 +88,7 @@ from sub_api import SubApiClient
 
 client = SubApiClient()
 response = client.chat.completions.create(
-    model="gemini",
+    model="gemini/gemini-2.5-pro",
     messages=[{"role": "user", "content": "Hello!"}],
 )
 
@@ -95,10 +99,10 @@ print(response.choices[0].message.content)
 
 ```bash
 # Ask a quick question
-sub_api ask "Explain this project in one sentence." --model gemini
+sub_api ask "Explain this project in one sentence." --backend gemini --model gemini-2.5-pro
 
 # Pipe input
-echo "Summarize this text" | sub_api ask --model claude
+echo "Summarize this text" | sub_api ask --backend claude --model sonnet
 ```
 
 ### 4. Local API Server
@@ -114,7 +118,7 @@ Then call it just like the OpenAI API:
 ```bash
 curl http://127.0.0.1:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d '{"model":"gemini","messages":[{"role":"user","content":"hi"}]}'
+  -d '{"model":"gemini/gemini-2.5-pro","messages":[{"role":"user","content":"hi"}]}'
 ```
 
 ## 🔌 Using with External Tools
@@ -124,7 +128,7 @@ Want to use your CLI tools with Cursor, Continue, or Open WebUI? Just point them
 ```text
 Base URL: http://localhost:8000/v1
 API Key: dummy (or anything)
-Model: gemini (or claude, codex)
+Model: gemini/gemini-2.5-pro (or claude/sonnet, codex/gpt-5)
 ```
 
 ### LangChain Integration
@@ -135,7 +139,7 @@ from langchain_openai import ChatOpenAI
 llm = ChatOpenAI(
     base_url="http://localhost:8000/v1",
     api_key="dummy",
-    model="gemini",
+    model="gemini/gemini-2.5-pro",
 )
 ```
 
@@ -146,7 +150,7 @@ import litellm
 
 litellm.api_base = "http://localhost:8000/v1"
 response = litellm.completion(
-    model="openai/gemini",
+    model="openai/gemini/gemini-2.5-pro",
     messages=[{"role": "user", "content": "hi"}],
 )
 ```

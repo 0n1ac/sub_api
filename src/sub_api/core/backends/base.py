@@ -20,17 +20,18 @@ class BackendResult:
 
 class Backend(ABC):
     cli_name: str
+    model_flag: tuple[str, ...] = ("--model",)
 
     def __init__(self, timeout: float) -> None:
         self.timeout = timeout
 
-    def complete(self, messages: list[ChatMessage]) -> BackendResult:
+    def complete(self, messages: list[ChatMessage], model: str | None = None) -> BackendResult:
         prompt = messages_to_prompt(messages)
-        return self.call(prompt)
+        return self.call(prompt, model=model)
 
-    def call(self, prompt: str) -> BackendResult:
+    def call(self, prompt: str, model: str | None = None) -> BackendResult:
         self.ensure_available()
-        stdout = self.run_cli(prompt)
+        stdout = self.run_cli(prompt, model=model)
         content = self.parse_output(stdout).strip()
         if not content:
             raise BackendExecutionError(f"{self.cli_name} returned an empty response.")
@@ -59,7 +60,7 @@ class Backend(ABC):
         return None
 
     @abstractmethod
-    def run_cli(self, prompt: str) -> str:
+    def run_cli(self, prompt: str, model: str | None = None) -> str:
         raise NotImplementedError
 
     def parse_output(self, stdout: str) -> str:
@@ -95,6 +96,15 @@ class Backend(ABC):
             raise BackendExecutionError(f"{self.cli_name} failed: {message}")
 
         return stdout
+
+    def _model_args(self, model: str | None) -> list[str]:
+        if model is None:
+            return []
+        args: list[str] = []
+        for flag in self.model_flag:
+            args.append(flag)
+        args.append(model)
+        return args
 
 
 def messages_to_prompt(messages: list[ChatMessage]) -> str:

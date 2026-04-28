@@ -13,14 +13,19 @@ def main() -> int:
         description="Call sub_api directly as a Python library without running the HTTP server."
     )
     parser.add_argument("prompt", nargs="?", help="Prompt text. Reads stdin when omitted.")
-    parser.add_argument("--model", default="gemini", choices=("gemini", "claude", "codex"))
+    parser.add_argument("--backend", default=None, choices=("gemini", "claude", "codex"))
+    parser.add_argument(
+        "--model",
+        default=None,
+        help="Optional backend-specific model name, e.g. gemini-2.5-pro or sonnet.",
+    )
     parser.add_argument("--timeout", type=float, default=60.0)
     args = parser.parse_args()
 
     # Accept either a positional prompt:
-    #   python examples/direct_call.py "Hello"
+    #   python examples/direct_call.py "Hello" --backend gemini
     # or piped stdin:
-    #   echo "Hello" | python examples/direct_call.py
+    #   echo "Hello" | python examples/direct_call.py --backend claude --model sonnet
     prompt = args.prompt if args.prompt is not None else sys.stdin.read().strip()
     if not prompt:
         print("프롬프트가 비어 있습니다.", file=sys.stderr)
@@ -31,7 +36,12 @@ def main() -> int:
     client = SubApiClient(timeout=args.timeout)
 
     try:
-        answer = client.call(model=args.model, prompt=prompt, timeout=args.timeout)
+        answer = client.call(
+            prompt=prompt,
+            backend=args.backend,
+            model=args.model,
+            timeout=args.timeout,
+        )
     except BackendNotAvailable as exc:
         # Usually means the selected CLI is not installed or not available on PATH.
         print(f"백엔드를 사용할 수 없습니다: {exc}", file=sys.stderr)

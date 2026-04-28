@@ -14,7 +14,12 @@ def main(argv: list[str] | None = None) -> int:
 
     ask_parser = subparsers.add_parser("ask", help="Ask a backend once.")
     ask_parser.add_argument("prompt", nargs="?", help="Prompt text. Reads stdin when omitted.")
-    ask_parser.add_argument("--model", default="gemini", choices=sorted(BACKENDS))
+    ask_parser.add_argument("--backend", choices=sorted(BACKENDS), default=None)
+    ask_parser.add_argument(
+        "--model",
+        default=None,
+        help="Backend-specific model name, or alias such as gemini/gemini-2.5-pro.",
+    )
     ask_parser.add_argument("--timeout", type=float, default=None)
 
     serve_parser = subparsers.add_parser("serve", help="Run the OpenAI-compatible HTTP server.")
@@ -48,7 +53,14 @@ def cmd_ask(args: argparse.Namespace) -> int:
 
     client = SubApiClient(timeout=args.timeout)
     try:
-        print(client.call(model=args.model, prompt=prompt, timeout=args.timeout))
+        print(
+            client.call(
+                prompt=prompt,
+                backend=args.backend,
+                model=args.model,
+                timeout=args.timeout,
+            )
+        )
     except (BackendExecutionError, BackendNotAvailable, BackendTimeout) as exc:
         print(f"오류: {exc}", file=sys.stderr)
         return 1
@@ -62,7 +74,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
     except ImportError:
         print(
             "서버 모드를 사용하려면 다음을 설치하세요:\n"
-            "  pip install sub_api[server]",
+            "  pip install \"sub_api[server] @ git+https://github.com/0n1ac/sub_api.git\"",
             file=sys.stderr,
         )
         return 1

@@ -9,8 +9,14 @@ from sub_api.core.backends.base import Backend
 class ClaudeBackend(Backend):
     cli_name = "claude"
 
-    def run_cli(self, prompt: str) -> str:
+    def run_cli(self, prompt: str, model: str | None = None) -> str:
         with tempfile.TemporaryDirectory(prefix="sub-api-claude-") as temp_dir:
             env = os.environ.copy()
             env["CLAUDE_CONFIG_DIR"] = temp_dir
-            return self._exec(self.cli_name, "-p", prompt, env=env)
+            return self._exec(
+                self.cli_name,
+                *self._model_args(model),
+                "-p",
+                prompt,
+                env=env,
+            )

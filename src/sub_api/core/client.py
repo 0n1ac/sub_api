@@ -6,6 +6,7 @@ from sub_api.core.backends import BACKENDS, get_backend
 from sub_api.core.backends.base import messages_to_prompt
 from sub_api.core.config import get_settings
 from sub_api.core.errors import BackendExecutionError
+from sub_api.core.modeling import ModelSelection, resolve_model_selection
 from sub_api.core.schema import (
     ChatCompletionResponse,
     ChatMessage,
@@ -14,31 +15,30 @@ from sub_api.core.schema import (
 
 
 class SubApiClient:
-    def __init__(self, default_model: str | None = None, timeout: float | None = None) -> None:
+    def __init__(self, default_backend: str | None = None, timeout: float | None = None) -> None:
         settings = get_settings()
-        self.default_model = (default_model or settings.default_backend).lower()
+        self.default_backend = (default_backend or settings.default_backend).lower()
         self.timeout = settings.timeout if timeout is None else timeout
         self.chat = _ChatResource(self)
 
     def call(
         self,
+        prompt: str,
+        *,
+        backend: str | None = None,
         model: str | None = None,
-        prompt: str | None = None,
         timeout: float | None = None,
     ) -> str:
-        if prompt is None:
-            prompt = model
-            model = None
-        if prompt is None:
-            raise BackendExecutionError("Prompt is required.")
+        selection = self._resolve_selection(backend=backend, model=model)
+        backend_impl = get_backend(
+            selection.backend,
+            timeout=self.timeout if timeout is None else timeout,
+        )
+        return backend_impl.call(prompt, model=selection.model).content
 
-        model_name = self._normalize_model(model)
-        backend = get_backend(model_name, timeout=self.timeout if timeout is None else timeout)
-        return backend.call(prompt).content
-
-    def is_available(self, model: str) -> bool:
-        model_name = self._normalize_model(model)
-        return get_backend(model_name, timeout=5).is_available()
+    def is_available(self, backend: str) -> bool:
+        selection = self._resolve_selection(backend=backend)
+        return get_backend(selection.backend, timeout=5).is_available()
 
     def available_backends(self) -> list[str]:
         return [name for name in BACKENDS if self.is_available(name)]
@@ -50,16 +50,18 @@ class SubApiClient:
             versions[name] = backend.version()
         return versions
 
-    def _normalize_model(self, model: str | None) -> str:
-        model_name = (model or self.default_model).lower()
-        if model_name.startswith("openai/"):
-            model_name = model_name.split("/", 1)[1]
-        if model_name not in BACKENDS:
-            supported = ", ".join(BACKENDS)
-            raise BackendExecutionError(
-                f"Unsupported model '{model_name}'. Supported models: {supported}."
-            )
-        return model_name
+    def _resolve_selection(
+        self,
+        *,
+        backend: str | None = None,
+        model: str | None = None,
+    ) -> ModelSelection:
+        return resolve_model_selection(
+            available_backends=set(BACKENDS),
+            default_backend=self.default_backend,
+            backend=backend,
+            model=model,
+        )
 
 
 class _ChatResource:
@@ -87,7 +89,12 @@ class _CompletionsResource:
             message if isinstance(message, ChatMessage) else ChatMessage.model_validate(message)
             for message in messages
         ]
-        model_name = self._client._normalize_model(model)
+        selection = self._client._resolve_selection(model=model)
         prompt = messages_to_prompt(parsed_messages)
-        content = self._client.call(model=model_name, prompt=prompt, timeout=timeout)
-        return make_chat_completion_response(model=model_name, content=content)
+        content = self._client.call(
+            prompt=prompt,
+            backend=selection.backend,
+            model=selection.model,
+            timeout=timeout,
+        )
+        return make_chat_completion_response(model=selection.response_model, content=content)

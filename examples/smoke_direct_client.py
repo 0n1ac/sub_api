@@ -12,10 +12,11 @@ class FakeBackend:
     def __init__(self, timeout: float) -> None:
         self.timeout = timeout
 
-    def call(self, prompt: str) -> BackendResult:
+    def call(self, prompt: str, model: str | None = None) -> BackendResult:
         # Real backends return BackendResult(content=...) after subprocess output
         # has been parsed. The fake response keeps assertions deterministic.
-        return BackendResult(content=f"fake response: {prompt}")
+        model_label = model or "default"
+        return BackendResult(content=f"fake response ({model_label}): {prompt}")
 
 
 def main() -> None:
@@ -25,17 +26,25 @@ def main() -> None:
         client = SubApiClient()
 
         # The simplest API returns a plain string.
-        direct = client.call(model="gemini", prompt="Hello")
-        assert direct == "fake response: Hello"
+        direct = client.call(prompt="Hello", backend="gemini")
+        assert direct == "fake response (default): Hello"
+
+        # Direct library usage can pass backend and backend-specific model
+        # separately. This is the preferred API for Python code.
+        detailed = client.call(prompt="Hello", backend="gemini", model="gemini-2.5-pro")
+        assert detailed == "fake response (gemini-2.5-pro): Hello"
 
         # The OpenAI-style API returns a response object with choices/message.
         # Internally, messages are serialized to a single prompt string.
         response = client.chat.completions.create(
-            model="gemini",
+            model="gemini/gemini-2.5-pro",
             messages=[{"role": "user", "content": "Hello"}],
         )
-        assert response.model == "gemini"
-        assert response.choices[0].message.content == "fake response: user: Hello"
+        assert response.model == "gemini/gemini-2.5-pro"
+        assert (
+            response.choices[0].message.content
+            == "fake response (gemini-2.5-pro): user: Hello"
+        )
 
     # A short success message keeps this script useful in CI or quick local checks.
     print("direct client smoke test passed")
