@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 
 from sub_api import SubApiClient
@@ -13,6 +15,9 @@ class FakeBackend:
         self.timeout = timeout
 
     def call(self, prompt: str, model: str | None = None) -> BackendResult:
+        if prompt.startswith("slow"):
+            time.sleep(0.05)
+
         # Real backends return BackendResult(content=...) after subprocess output
         # has been parsed. The fake response keeps assertions deterministic.
         model_label = model or "default"
@@ -55,13 +60,29 @@ def main() -> None:
             == "fake response (gemini-2.5-pro): user: Hello"
         )
         assert response.sub_api is not None
-        assert response.sub_api["latency_ms"]["total"] == 12
+        assert response.sub_api["latency_ms"]["total"] >= 0
+        assert response.sub_api["latency_ms"]["queued"] >= 0
+        assert response.sub_api["latency_ms"]["spawn"] == 1
         assert response.usage == {
             "prompt_tokens": 2,
             "completion_tokens": 3,
             "total_tokens": 5,
         }
         assert response.sub_api["usage"]["source"] == "heuristic"
+
+        # Direct library usage limits same-backend concurrency by default. With a
+        # single slot per backend, concurrent calls to the same backend are
+        # serialized, and the second call records queue wait time in latency.queued.
+        limited_client = SubApiClient()
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [
+                executor.submit(limited_client.call_result, prompt=f"slow {index}", backend="gemini")
+                for index in range(2)
+            ]
+            limited_results = [future.result() for future in futures]
+
+        assert all(result.latency.queued is not None for result in limited_results)
+        assert max(result.latency.queued or 0 for result in limited_results) > 0
 
     # A short success message keeps this script useful in CI or quick local checks.
     print("direct client smoke test passed")

@@ -8,6 +8,7 @@ from sub_api.core.backends.base import Backend, ExecResult, parse_jsonish_text
 
 class GeminiBackend(Backend):
     cli_name = "gemini"
+    supports_stdout_streaming = False
 
     def run_cli(self, prompt: str, model: str | None = None) -> ExecResult:
         env = os.environ.copy()

@@ -24,6 +24,8 @@ class Settings:
     timeout: float = 60.0
     host: str = "127.0.0.1"
     port: int = 8000
+    server_max_concurrent_per_backend: int = 1
+    concurrency_queue_timeout: float | None = None
 
 
 def get_settings() -> Settings:
@@ -33,4 +35,14 @@ def get_settings() -> Settings:
         timeout=float(os.getenv("TIMEOUT", "60")),
         host=os.getenv("HOST", "127.0.0.1"),
         port=int(os.getenv("PORT", "8000")),
+        server_max_concurrent_per_backend=int(
+            os.getenv("SUB_API_SERVER_MAX_CONCURRENT_PER_BACKEND", "1")
+        ),
+        concurrency_queue_timeout=_optional_float(os.getenv("SUB_API_CONCURRENCY_QUEUE_TIMEOUT")),
     )
+
+
+def _optional_float(value: str | None) -> float | None:
+    if value is None or value == "":
+        return None
+    return float(value)

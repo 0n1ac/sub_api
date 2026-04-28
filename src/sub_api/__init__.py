@@ -1,5 +1,6 @@
 from sub_api.core.client import SubApiClient
 from sub_api.core.errors import (
+    BackendConcurrencyTimeout,
     BackendExecutionError,
     BackendNotAvailable,
     BackendTimeout,
@@ -8,6 +9,7 @@ from sub_api.core.errors import (
 
 __all__ = [
     "BackendExecutionError",
+    "BackendConcurrencyTimeout",
     "BackendNotAvailable",
     "BackendTimeout",
     "SubApiClient",

@@ -13,5 +13,9 @@ class BackendTimeout(SubApiError):
     """Raised when a backend CLI exceeds the configured timeout."""
 
 
+class BackendConcurrencyTimeout(BackendTimeout):
+    """Raised when a backend concurrency slot cannot be acquired in time."""
+
+
 class BackendExecutionError(SubApiError):
     """Raised when a backend CLI exits unsuccessfully or returns unusable output."""

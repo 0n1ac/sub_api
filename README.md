@@ -87,6 +87,13 @@ answer = client.call(
 print(answer)
 ```
 
+Library mode limits same-backend concurrency to one call by default. Raise or disable that limit explicitly when your app can safely run multiple calls against the same CLI session:
+
+```python
+client = SubApiClient(max_concurrent_per_backend=2)     # allow two calls per backend
+client = SubApiClient(max_concurrent_per_backend=None)  # disable the library limiter
+```
+
 Use `call_result(...)` when you also need latency metadata:
 
 ```python
@@ -205,6 +212,7 @@ OpenAI-style responses include `sub_api.latency_ms`:
     "backend": "gemini",
     "latency_ms": {
       "total": 2431,
+      "queued": 0,
       "spawn": 12,
       "first_stdout": 2180,
       "execution": 2120,
@@ -214,7 +222,13 @@ OpenAI-style responses include `sub_api.latency_ms`:
 }
 ```
 
-`spawn` measures process creation overhead, `first_stdout` measures time until the first stdout byte, `execution` measures process runtime, and `parse` measures output parsing time. `total` is measured separately as wall-clock time. Stage values may be `null` if a stage cannot be measured.
+`queued` measures time spent waiting for a concurrency slot, `spawn` measures process creation overhead, `first_stdout` measures time until the first stdout byte, `execution` measures process runtime, and `parse` measures output parsing time. `total` is measured separately as wall-clock time. Stage values may be `null` if a stage cannot be measured.
+
+## Concurrency Policy
+
+Server mode limits concurrent calls per backend with a shared semaphore. The default is one in-flight call per backend, which avoids racing against the same authenticated CLI session. Configure it with `SUB_API_SERVER_MAX_CONCURRENT_PER_BACKEND`.
+
+Library mode also limits same-backend concurrency to one call by default. Use `SubApiClient(max_concurrent_per_backend=N)` to raise the limit, or `SubApiClient(max_concurrent_per_backend=None)` to disable the library limiter. Requests that wait for a slot are reflected in `sub_api.latency_ms.queued`; requests that exceed the queue timeout raise `BackendConcurrencyTimeout` or return HTTP 503 in server mode.
 
 ## Token Stats
 

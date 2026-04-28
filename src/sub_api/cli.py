@@ -26,6 +26,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Print latency stats to stderr after the answer.",
     )
+    ask_parser.add_argument(
+        "--stream",
+        action="store_true",
+        help="Stream stdout chunks as they arrive when the backend supports it.",
+    )
 
     serve_parser = subparsers.add_parser("serve", help="Run the OpenAI-compatible HTTP server.")
     serve_parser.add_argument("--host", default="127.0.0.1")
@@ -58,6 +63,19 @@ def cmd_ask(args: argparse.Namespace) -> int:
 
     client = SubApiClient(timeout=args.timeout)
     try:
+        if args.stream:
+            for chunk in client.stream(
+                prompt=prompt,
+                backend=args.backend,
+                model=args.model,
+                timeout=args.timeout,
+            ):
+                print(chunk, end="", flush=True)
+            print()
+            if args.stats:
+                print("stats are not available for streaming CLI calls yet.", file=sys.stderr)
+            return 0
+
         result = client.call_result(
             prompt=prompt,
             backend=args.backend,
@@ -92,7 +110,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
 def _format_latency_stats(stats: dict[str, int | None]) -> str:
     parts = []
-    for key in ("total", "spawn", "first_stdout", "execution", "parse"):
+    for key in ("total", "queued", "spawn", "first_stdout", "execution", "parse"):
         value = stats.get(key)
         rendered = "null" if value is None else f"{value}ms"
         parts.append(f"{key}={rendered}")

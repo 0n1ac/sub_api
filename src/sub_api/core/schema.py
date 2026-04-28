@@ -42,6 +42,26 @@ class ChatCompletionResponse(BaseModel):
     sub_api: dict[str, Any] | None = None
 
 
+class CompletionDelta(BaseModel):
+    role: str | None = None
+    content: str | None = None
+
+
+class ChatCompletionChunkChoice(BaseModel):
+    index: int
+    delta: CompletionDelta
+    finish_reason: str | None = None
+
+
+class ChatCompletionChunk(BaseModel):
+    id: str
+    object: str = "chat.completion.chunk"
+    created: int
+    model: str
+    choices: list[ChatCompletionChunkChoice]
+    sub_api: dict[str, Any] | None = None
+
+
 def make_chat_completion_response(
     model: str,
     content: str,
@@ -59,5 +79,30 @@ def make_chat_completion_response(
             )
         ],
         usage=usage,
+        sub_api=sub_api,
+    )
+
+
+def make_chat_completion_chunk(
+    *,
+    chunk_id: str,
+    created: int,
+    model: str,
+    content: str | None = None,
+    role: str | None = None,
+    finish_reason: str | None = None,
+    sub_api: dict[str, Any] | None = None,
+) -> ChatCompletionChunk:
+    return ChatCompletionChunk(
+        id=chunk_id,
+        created=created,
+        model=model,
+        choices=[
+            ChatCompletionChunkChoice(
+                index=0,
+                delta=CompletionDelta(role=role, content=content),
+                finish_reason=finish_reason,
+            )
+        ],
         sub_api=sub_api,
     )

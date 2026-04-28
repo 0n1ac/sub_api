@@ -10,7 +10,7 @@ import subprocess
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Mapping
+from typing import Iterator, Mapping
 
 from sub_api.core.errors import BackendExecutionError, BackendNotAvailable, BackendTimeout
 from sub_api.core.schema import ChatMessage
@@ -19,6 +19,7 @@ from sub_api.core.schema import ChatMessage
 @dataclass(frozen=True)
 class LatencyStats:
     total: int | None = None
+    queued: int | None = None
     spawn: int | None = None
     first_stdout: int | None = None
     execution: int | None = None
@@ -27,6 +28,7 @@ class LatencyStats:
     def as_dict(self) -> dict[str, int | None]:
         return {
             "total": self.total,
+            "queued": self.queued,
             "spawn": self.spawn,
             "first_stdout": self.first_stdout,
             "execution": self.execution,
@@ -65,6 +67,7 @@ class BackendResult:
 class Backend(ABC):
     cli_name: str
     model_flag: tuple[str, ...] = ("--model",)
+    supports_stdout_streaming: bool = True
 
     def __init__(self, timeout: float) -> None:
         self.timeout = timeout
@@ -98,6 +101,14 @@ class Backend(ABC):
         )
         return BackendResult(content=content, latency=latency, usage=usage)
 
+    def stream(self, prompt: str, model: str | None = None) -> Iterator[str]:
+        if not self.supports_stdout_streaming:
+            yield self.call(prompt, model=model).content
+            return
+
+        self.ensure_available()
+        yield from self.run_cli_stream(prompt, model=model)
+
     def ensure_available(self) -> None:
         if shutil.which(self.cli_name) is None:
             raise BackendNotAvailable(
@@ -123,6 +134,9 @@ class Backend(ABC):
     @abstractmethod
     def run_cli(self, prompt: str, model: str | None = None) -> ExecResult:
         raise NotImplementedError
+
+    def run_cli_stream(self, prompt: str, model: str | None = None) -> Iterator[str]:
+        raise BackendExecutionError(f"{self.cli_name} does not support stdout streaming.")
 
     def parse_output(self, stdout: str) -> str:
         return stdout
@@ -168,7 +182,6 @@ class Backend(ABC):
 
                 events = selector.select(timeout=min(0.1, remaining))
                 if not events and process.poll() is not None:
-                    _drain_ready_streams(selector)
                     break
 
                 for key, _ in events:
@@ -218,6 +231,79 @@ class Backend(ABC):
                 execution=_interval_ms(process_started_at, process_finished_at),
             ),
         )
+
+    def _exec_stream(
+        self,
+        *args: str,
+        env: Mapping[str, str] | None = None,
+        timeout: float | None = None,
+    ) -> Iterator[str]:
+        effective_timeout = self.timeout if timeout is None else timeout
+        total_start = time.perf_counter()
+        process = subprocess.Popen(
+            args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=dict(env) if env is not None else None,
+            start_new_session=True,
+        )
+
+        stderr_chunks: list[bytes] = []
+        selector = selectors.DefaultSelector()
+        assert process.stdout is not None
+        assert process.stderr is not None
+        selector.register(process.stdout, selectors.EVENT_READ, None)
+        selector.register(process.stderr, selectors.EVENT_READ, stderr_chunks)
+        deadline = total_start + effective_timeout
+        timed_out = False
+
+        try:
+            while selector.get_map():
+                remaining = deadline - time.perf_counter()
+                if remaining <= 0:
+                    timed_out = True
+                    break
+
+                events = selector.select(timeout=min(0.1, remaining))
+                if not events and process.poll() is not None:
+                    _drain_ready_streams(selector)
+                    break
+
+                for key, _ in events:
+                    chunk = os.read(key.fileobj.fileno(), 8192)
+                    if not chunk:
+                        selector.unregister(key.fileobj)
+                        continue
+
+                    if key.fileobj is process.stdout:
+                        yield chunk.decode("utf-8", errors="replace")
+                    else:
+                        key.data.append(chunk)
+
+            if timed_out:
+                _kill_process_group(process.pid)
+                _drain_process_pipes(process, [], stderr_chunks)
+                raise BackendTimeout(
+                    f"{self.cli_name} timed out after {effective_timeout:g} seconds."
+                )
+
+            try:
+                return_code = process.wait(timeout=1)
+            except subprocess.TimeoutExpired as exc:
+                _kill_process_group(process.pid)
+                _drain_process_pipes(process, [], stderr_chunks)
+                raise BackendTimeout(
+                    f"{self.cli_name} timed out after {effective_timeout:g} seconds."
+                ) from exc
+        finally:
+            selector.close()
+            if process.poll() is None:
+                _kill_process_group(process.pid)
+
+        stderr = b"".join(stderr_chunks).decode("utf-8", errors="replace")
+        if return_code != 0:
+            message = stderr.strip() or f"exit code {return_code}"
+            raise BackendExecutionError(f"{self.cli_name} failed: {message}")
 
     def _model_args(self, model: str | None) -> list[str]:
         if model is None:

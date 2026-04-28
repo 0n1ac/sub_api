@@ -85,6 +85,13 @@ answer = client.call(
 print(answer)
 ```
 
+Library mode limits same-backend concurrency to one call by default. This avoids racing against the same CLI session. Raise or disable the limit explicitly when your app can do so safely:
+
+```python
+client = SubApiClient(max_concurrent_per_backend=2)     # allow two calls per backend
+client = SubApiClient(max_concurrent_per_backend=None)  # disable the library limiter
+```
+
 **Call with latency metadata:**
 ```python
 from sub_api import SubApiClient
@@ -219,6 +226,7 @@ If you're integrating `sub_api` into your Python app, you can catch these specif
 
 ```python
 from sub_api import (
+    BackendConcurrencyTimeout,
     BackendExecutionError,
     BackendNotAvailable,
     BackendTimeout,
@@ -229,7 +237,7 @@ from sub_api import (
 When using **Server mode**, expect standard HTTP status codes:
 - `400`: Unsupported model or option requested.
 - `500`: The backend CLI failed to execute or we couldn't parse its output.
-- `503`: The requested backend CLI isn't installed or isn't on your system's `PATH`.
+- `503`: The requested backend CLI isn't installed or isn't on your system's `PATH`, or a concurrency slot timed out.
 - `504`: The backend CLI took too long and timed out.
 
 ## ⚙️ Environment Variables
@@ -241,6 +249,8 @@ HOST=127.0.0.1
 PORT=8000
 TIMEOUT=60
 DEFAULT_BACKEND=gemini
+SUB_API_SERVER_MAX_CONCURRENT_PER_BACKEND=1
+# SUB_API_CONCURRENCY_QUEUE_TIMEOUT=30
 # Optional. Omit to use each CLI's native default model.
 SUB_API_DEFAULT_MODEL_GEMINI=gemini-2.5-pro
 SUB_API_DEFAULT_MODEL_CLAUDE=sonnet
@@ -257,6 +267,7 @@ SUB_API_DEFAULT_MODEL_CODEX=gpt-5
     "backend": "gemini",
     "latency_ms": {
       "total": 2431,
+      "queued": 0,
       "spawn": 12,
       "first_stdout": 2180,
       "execution": 2120,
@@ -266,6 +277,7 @@ SUB_API_DEFAULT_MODEL_CODEX=gpt-5
 }
 ```
 
+- `queued`: time spent waiting for a concurrency slot
 - `spawn`: process creation overhead
 - `first_stdout`: time until the first stdout byte
 - `execution`: process runtime
@@ -273,6 +285,17 @@ SUB_API_DEFAULT_MODEL_CODEX=gpt-5
 - `total`: separately measured wall-clock time, not the sum of the other fields
 
 Stage values may be `null` when unavailable.
+
+## 🔒 Concurrency Policy
+
+Server mode uses a process-wide semaphore for calls to the same backend. The default is one in-flight call per backend, which avoids racing against the same authenticated CLI session.
+
+```env
+SUB_API_SERVER_MAX_CONCURRENT_PER_BACKEND=1
+SUB_API_CONCURRENCY_QUEUE_TIMEOUT=30
+```
+
+Library mode also limits same-backend concurrency to one call by default. Use `SubApiClient(max_concurrent_per_backend=N)` to raise the limit, or `SubApiClient(max_concurrent_per_backend=None)` to disable the library limiter. Queue wait time is recorded in `latency_ms.queued`; if the queue timeout is exceeded, `BackendConcurrencyTimeout` is raised.
 
 ## 🔢 Token Stats
 
