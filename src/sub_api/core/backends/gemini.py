@@ -49,5 +49,6 @@ class GeminiBackend(Backend):
                 "--output-format",
                 "stream-json",
                 env=env,
-            )
+            ),
+            prompt_to_skip=prompt,
         )

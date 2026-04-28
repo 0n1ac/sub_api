@@ -348,7 +348,11 @@ def parse_jsonish_text(stdout: str) -> str:
     return extract_text(json.loads(stdout))
 
 
-def parse_stream_json_text(chunks: Iterator[str]) -> Iterator[str]:
+def parse_stream_json_text(
+    chunks: Iterator[str],
+    *,
+    prompt_to_skip: str | None = None,
+) -> Iterator[str]:
     buffer = ""
     emitted_text = ""
     for chunk in chunks:
@@ -362,6 +366,8 @@ def parse_stream_json_text(chunks: Iterator[str]) -> Iterator[str]:
         for line in lines:
             text = _stream_json_line_text(line.strip())
             if text:
+                if prompt_to_skip:
+                    text = _strip_prompt_echo(text, prompt_to_skip)
                 delta = _dedupe_stream_text(emitted_text, text)
                 if delta:
                     emitted_text += delta
@@ -370,6 +376,8 @@ def parse_stream_json_text(chunks: Iterator[str]) -> Iterator[str]:
     if buffer:
         text = _stream_json_line_text(buffer.strip())
         if text:
+            if prompt_to_skip:
+                text = _strip_prompt_echo(text, prompt_to_skip)
             delta = _dedupe_stream_text(emitted_text, text)
             if delta:
                 yield delta
@@ -401,6 +409,9 @@ def _stream_json_line_text(line: str) -> str:
     except json.JSONDecodeError:
         return line
 
+    if _is_user_stream_event(event):
+        return ""
+
     text = _extract_stream_delta_text(event)
     if text:
         return text
@@ -417,6 +428,63 @@ def _dedupe_stream_text(emitted_text: str, text: str) -> str:
     if text.startswith(emitted_text):
         return text[len(emitted_text) :]
     return text
+
+
+def _strip_prompt_echo(text: str, prompt: str) -> str:
+    if not prompt:
+        return text
+    if text.startswith(prompt):
+        return text[len(prompt) :]
+
+    end = _normalized_prefix_end(text, prompt)
+    if end is None:
+        return text
+    return text[end:]
+
+
+def _normalized_prefix_end(text: str, prefix: str) -> int | None:
+    text_index = 0
+    prefix_index = 0
+
+    while text_index < len(text) and prefix_index < len(prefix):
+        if text[text_index].isspace() and prefix[prefix_index].isspace():
+            while text_index < len(text) and text[text_index].isspace():
+                text_index += 1
+            while prefix_index < len(prefix) and prefix[prefix_index].isspace():
+                prefix_index += 1
+            continue
+
+        if text[text_index] != prefix[prefix_index]:
+            return None
+
+        text_index += 1
+        prefix_index += 1
+
+    while prefix_index < len(prefix) and prefix[prefix_index].isspace():
+        prefix_index += 1
+
+    if prefix_index != len(prefix):
+        return None
+    return text_index
+
+
+def _is_user_stream_event(value: object) -> bool:
+    if not isinstance(value, dict):
+        return False
+
+    role = value.get("role")
+    if role == "user":
+        return True
+
+    message = value.get("message")
+    if isinstance(message, dict) and message.get("role") == "user":
+        return True
+
+    event_type = value.get("type")
+    if isinstance(event_type, str) and event_type.startswith("user"):
+        return True
+
+    return False
 
 
 def _extract_stream_delta_text(value: object) -> str:

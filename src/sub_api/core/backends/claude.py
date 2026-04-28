@@ -36,5 +36,6 @@ class ClaudeBackend(Backend):
                     "stream-json",
                     "--include-partial-messages",
                     env=env,
-                )
+                ),
+                prompt_to_skip=prompt,
             )

@@ -26,5 +26,6 @@ class CodexBackend(Backend):
                 "--ephemeral",
                 "--json",
                 prompt,
-            )
+            ),
+            prompt_to_skip=prompt,
         )
