@@ -58,4 +58,4 @@ class GeminiBackend(Backend):
     def _tool_args(self) -> list[str]:
         if os.getenv("SUB_API_GEMINI_DISABLE_TOOLS", "").lower() not in {"1", "true", "yes", "on"}:
             return []
-        return ["--allowed-tools", ""]
+        return ["--settings", json.dumps({"tools": {"exclude": ["*"]}})]
