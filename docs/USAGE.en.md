@@ -163,6 +163,7 @@ sub_api ask "Explain decorators in Python." --backend gemini --stats
 **Stream output:**
 ```bash
 sub_api ask "Write a short intro." --backend claude --stream
+sub_api ask "Write a short intro." --backend claude --stream --stats
 ```
 
 **Pipe content from standard input:**
@@ -352,6 +353,8 @@ Possible sources:
 - `native`: the backend CLI provided token usage directly
 - `tiktoken_estimate`: estimated with optional `tiktoken`
 - `heuristic`: fallback estimate, currently length-based
+
+Streaming calls also expose latency and token stats after the stream is exhausted. Token usage may be estimated for streaming responses because some backend streaming formats do not include native usage metadata.
 
 ## ⚠️ Limitations
 

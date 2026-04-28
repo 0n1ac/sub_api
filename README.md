@@ -152,6 +152,9 @@ sub_api ask "Hello" --backend gemini --stats
 
 # Stream chunks when the backend exposes stdout incrementally
 sub_api ask "Write a short intro." --backend claude --stream
+
+# Stream chunks and print latency/token stats after completion
+sub_api ask "Write a short intro." --backend claude --stream --stats
 ```
 
 ### 4. Local API Server
@@ -278,6 +281,8 @@ Possible sources:
 - `native`: the backend CLI provided token usage directly
 - `tiktoken_estimate`: estimated with optional `tiktoken`
 - `heuristic`: fallback estimate, currently length-based
+
+Streaming calls expose latency and token stats after the stream is exhausted. Token usage may be estimated for streaming responses because some backend streaming formats do not include native usage metadata.
 
 ## 📄 License
 

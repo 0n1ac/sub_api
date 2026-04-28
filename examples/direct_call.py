@@ -46,14 +46,23 @@ def main() -> int:
             # Streaming still uses the same backend/model selection path. Some
             # CLIs only emit stdout after the final answer; those backends fall
             # back to printing one final chunk.
-            for chunk in client.stream(
+            stream_result = client.stream_result(
                 prompt=prompt,
                 backend=args.backend,
                 model=args.model,
                 timeout=args.timeout,
-            ):
+            )
+            for chunk in stream_result.chunks:
                 print(chunk, end="", flush=True)
             print()
+            if args.stats and stream_result.result is not None:
+                print(f"latency_ms={stream_result.result.latency.as_dict()}", file=sys.stderr)
+                print(
+                    "usage="
+                    f"{stream_result.result.usage.as_openai_usage()} "
+                    f"source={stream_result.result.usage.source}",
+                    file=sys.stderr,
+                )
             return 0
 
         result = client.call_result(

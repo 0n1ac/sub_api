@@ -102,6 +102,20 @@ def main() -> None:
             chunk.choices[0].delta.content or "" for chunk in chunks
         )
         assert streamed_text == "fake stream (gemini-2.5-pro): user: Hello"
+        assert chunks[-1].usage == {
+            "prompt_tokens": 3,
+            "completion_tokens": 11,
+            "total_tokens": 14,
+        }
+        assert chunks[-1].sub_api is not None
+        assert chunks[-1].sub_api["latency_ms"]["total"] >= 0
+        assert chunks[-1].sub_api["usage"]["source"] == "heuristic"
+
+        # Direct streaming can expose stats after the iterator is exhausted.
+        stream_result = client.stream_result(prompt="Hello", backend="gemini")
+        assert "".join(stream_result.chunks) == "fake stream (default): Hello"
+        assert stream_result.result is not None
+        assert stream_result.result.usage.source == "heuristic"
 
     # A short success message keeps this script useful in CI or quick local checks.
     print("direct client smoke test passed")

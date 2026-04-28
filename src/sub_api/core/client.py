@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import time
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import Any, Iterator
 
 from sub_api.core.backends import BACKENDS, get_backend
-from sub_api.core.backends.base import BackendResult, LatencyStats, messages_to_prompt
+from sub_api.core.backends.base import (
+    BackendResult,
+    LatencyStats,
+    estimate_usage,
+    messages_to_prompt,
+)
 from sub_api.core.config import get_settings
 from sub_api.core.concurrency import BackendConcurrencyLimiter
 from sub_api.core.errors import BackendExecutionError
@@ -17,6 +22,12 @@ from sub_api.core.schema import (
     make_chat_completion_chunk,
     make_chat_completion_response,
 )
+
+
+@dataclass
+class StreamingResult:
+    chunks: Iterator[str]
+    result: BackendResult | None = None
 
 
 class SubApiClient:
@@ -96,24 +107,80 @@ class SubApiClient:
         model: str | None = None,
         timeout: float | None = None,
     ) -> Iterator[str]:
+        yield from self.stream_result(
+            prompt=prompt,
+            backend=backend,
+            model=model,
+            timeout=timeout,
+        ).chunks
+
+    def stream_result(
+        self,
+        prompt: str,
+        *,
+        backend: str | None = None,
+        model: str | None = None,
+        timeout: float | None = None,
+    ) -> StreamingResult:
         selection = self._resolve_selection(backend=backend, model=model)
         backend_impl = get_backend(
             selection.backend,
             timeout=self.timeout if timeout is None else timeout,
         )
 
-        if self._concurrency_limiter is None:
-            yield from backend_impl.stream(prompt, model=selection.model)
-            return
+        stream_result = StreamingResult(chunks=iter(()))
 
-        queue_timeout = (
-            self.concurrency_queue_timeout
-            if self.concurrency_queue_timeout is not None
-            else timeout if timeout is not None
-            else self.timeout
-        )
-        with self._concurrency_limiter.acquire(selection.backend, timeout=queue_timeout):
-            yield from backend_impl.stream(prompt, model=selection.model)
+        def chunks() -> Iterator[str]:
+            total_start = time.perf_counter()
+            stream_start: float | None = None
+            first_chunk_at: float | None = None
+            queued_ms: int | None = None
+            parts: list[str] = []
+
+            if self._concurrency_limiter is None:
+                stream_start = time.perf_counter()
+                for chunk in backend_impl.stream(prompt, model=selection.model):
+                    if first_chunk_at is None:
+                        first_chunk_at = time.perf_counter()
+                    parts.append(chunk)
+                    yield chunk
+            else:
+                queue_timeout = (
+                    self.concurrency_queue_timeout
+                    if self.concurrency_queue_timeout is not None
+                    else timeout if timeout is not None
+                    else self.timeout
+                )
+                with self._concurrency_limiter.acquire(
+                    selection.backend,
+                    timeout=queue_timeout,
+                ) as slot:
+                    queued_ms = slot.queued_ms
+                    stream_start = time.perf_counter()
+                    for chunk in backend_impl.stream(prompt, model=selection.model):
+                        if first_chunk_at is None:
+                            first_chunk_at = time.perf_counter()
+                        parts.append(chunk)
+                        yield chunk
+
+            finished_at = time.perf_counter()
+            content = "".join(parts)
+            result = BackendResult(
+                content=content,
+                latency=LatencyStats(
+                    total=_elapsed_ms(total_start),
+                    queued=queued_ms,
+                    first_stdout=_interval_ms(total_start, first_chunk_at),
+                    execution=_interval_ms(stream_start, finished_at),
+                    parse=0,
+                ),
+                usage=estimate_usage(prompt=prompt, completion=content, model=selection.model),
+            )
+            stream_result.result = result
+            self.last_result = result
+
+        stream_result.chunks = chunks()
+        return stream_result
 
     def is_available(self, backend: str) -> bool:
         selection = self._resolve_selection(backend=backend)
@@ -169,13 +236,14 @@ class _CompletionsResource:
         prompt = messages_to_prompt(parsed_messages)
 
         if stream:
+            stream_result = self._client.stream_result(
+                prompt=prompt,
+                backend=selection.backend,
+                model=selection.model,
+                timeout=timeout,
+            )
             return _chat_completion_chunks(
-                self._client.stream(
-                    prompt=prompt,
-                    backend=selection.backend,
-                    model=selection.model,
-                    timeout=timeout,
-                ),
+                stream_result,
                 model=selection.response_model,
                 backend=selection.backend,
             )
@@ -219,7 +287,7 @@ def _with_concurrency_latency(
 
 
 def _chat_completion_chunks(
-    content_chunks: Iterator[str],
+    stream_result: StreamingResult,
     *,
     model: str,
     backend: str,
@@ -233,7 +301,7 @@ def _chat_completion_chunks(
         role="assistant",
         sub_api={"backend": backend},
     )
-    for content in content_chunks:
+    for content in stream_result.chunks:
         if content:
             yield make_chat_completion_chunk(
                 chunk_id=chunk_id,
@@ -241,9 +309,33 @@ def _chat_completion_chunks(
                 model=model,
                 content=content,
             )
+    result = stream_result.result
+    sub_api = None
+    usage = None
+    if result is not None:
+        usage = result.usage.as_openai_usage()
+        sub_api = {
+            "backend": backend,
+            "latency_ms": result.latency.as_dict(),
+            "usage": {
+                "source": result.usage.source,
+            },
+        }
     yield make_chat_completion_chunk(
         chunk_id=chunk_id,
         created=created,
         model=model,
         finish_reason="stop",
+        usage=usage,
+        sub_api=sub_api,
     )
+
+
+def _elapsed_ms(start: float) -> int:
+    return int(round((time.perf_counter() - start) * 1000))
+
+
+def _interval_ms(start: float | None, end: float | None) -> int | None:
+    if start is None or end is None:
+        return None
+    return int(round((end - start) * 1000))

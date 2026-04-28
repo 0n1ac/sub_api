@@ -64,16 +64,24 @@ def cmd_ask(args: argparse.Namespace) -> int:
     client = SubApiClient(timeout=args.timeout)
     try:
         if args.stream:
-            for chunk in client.stream(
+            stream_result = client.stream_result(
                 prompt=prompt,
                 backend=args.backend,
                 model=args.model,
                 timeout=args.timeout,
-            ):
+            )
+            for chunk in stream_result.chunks:
                 print(chunk, end="", flush=True)
             print()
-            if args.stats:
-                print("stats are not available for streaming CLI calls yet.", file=sys.stderr)
+            if args.stats and stream_result.result is not None:
+                print(_format_latency_stats(stream_result.result.latency.as_dict()), file=sys.stderr)
+                print(
+                    _format_token_stats(
+                        stream_result.result.usage.as_openai_usage(),
+                        stream_result.result.usage.source,
+                    ),
+                    file=sys.stderr,
+                )
             return 0
 
         result = client.call_result(

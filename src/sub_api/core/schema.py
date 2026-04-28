@@ -59,6 +59,7 @@ class ChatCompletionChunk(BaseModel):
     created: int
     model: str
     choices: list[ChatCompletionChunkChoice]
+    usage: dict[str, Any] | None = None
     sub_api: dict[str, Any] | None = None
 
 
@@ -91,6 +92,7 @@ def make_chat_completion_chunk(
     content: str | None = None,
     role: str | None = None,
     finish_reason: str | None = None,
+    usage: dict[str, Any] | None = None,
     sub_api: dict[str, Any] | None = None,
 ) -> ChatCompletionChunk:
     return ChatCompletionChunk(
@@ -104,5 +106,6 @@ def make_chat_completion_chunk(
                 finish_reason=finish_reason,
             )
         ],
+        usage=usage,
         sub_api=sub_api,
     )
