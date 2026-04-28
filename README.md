@@ -288,7 +288,7 @@ Possible sources:
 
 Streaming calls expose latency and token stats after the stream is exhausted. Token usage may be estimated for streaming responses because some backend streaming formats do not include native usage metadata.
 
-When backend tools are used, `sub_api.tools` and CLI `tools:` stats show the tool names observed in the backend output. For Gemini, set `SUB_API_GEMINI_DISABLE_TOOLS=true` or pass `--disable-tools` in the CLI to disable tools for a call.
+When backend tools are used, `sub_api.tools` and CLI `tools:` stats show the tool names observed in the backend output. For Gemini, set `SUB_API_GEMINI_DISABLE_TOOLS=true` or pass `--disable-tools` in the CLI to disable tool-heavy behavior for a call. Current Gemini CLI versions error when zero tools are configured, so `sub_api` restricts Gemini to a minimal built-in allowlist that prevents search, fetch, file, shell, MCP, extension, and skill tools from being exposed.
 
 ## 📄 License
 
