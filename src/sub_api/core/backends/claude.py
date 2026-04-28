@@ -4,7 +4,7 @@ import os
 import tempfile
 from typing import Iterator
 
-from sub_api.core.backends.base import Backend, ExecResult
+from sub_api.core.backends.base import Backend, ExecResult, parse_stream_json_text
 
 
 class ClaudeBackend(Backend):
@@ -26,10 +26,15 @@ class ClaudeBackend(Backend):
         with tempfile.TemporaryDirectory(prefix="sub-api-claude-") as temp_dir:
             env = os.environ.copy()
             env["CLAUDE_CONFIG_DIR"] = temp_dir
-            yield from self._exec_stream(
-                self.cli_name,
-                *self._model_args(model),
-                "-p",
-                prompt,
-                env=env,
+            yield from parse_stream_json_text(
+                self._exec_stream(
+                    self.cli_name,
+                    *self._model_args(model),
+                    "-p",
+                    prompt,
+                    "--output-format",
+                    "stream-json",
+                    "--include-partial-messages",
+                    env=env,
+                )
             )

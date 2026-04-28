@@ -348,6 +348,33 @@ def parse_jsonish_text(stdout: str) -> str:
     return extract_text(json.loads(stdout))
 
 
+def parse_stream_json_text(chunks: Iterator[str]) -> Iterator[str]:
+    buffer = ""
+    emitted_text = ""
+    for chunk in chunks:
+        buffer += chunk
+        lines = buffer.splitlines(keepends=True)
+        if lines and not lines[-1].endswith(("\n", "\r")):
+            buffer = lines.pop()
+        else:
+            buffer = ""
+
+        for line in lines:
+            text = _stream_json_line_text(line.strip())
+            if text:
+                delta = _dedupe_stream_text(emitted_text, text)
+                if delta:
+                    emitted_text += delta
+                    yield delta
+
+    if buffer:
+        text = _stream_json_line_text(buffer.strip())
+        if text:
+            delta = _dedupe_stream_text(emitted_text, text)
+            if delta:
+                yield delta
+
+
 def extract_text(value: object) -> str:
     if isinstance(value, str):
         return value
@@ -362,6 +389,87 @@ def extract_text(value: object) -> str:
         for key in ("candidates", "parts"):
             if isinstance(value.get(key), list):
                 return extract_text(value[key])
+    return ""
+
+
+def _stream_json_line_text(line: str) -> str:
+    if not line:
+        return ""
+
+    try:
+        event = json.loads(line)
+    except json.JSONDecodeError:
+        return line
+
+    text = _extract_stream_delta_text(event)
+    if text:
+        return text
+
+    event_type = event.get("type") if isinstance(event, dict) else None
+    if event_type in {"result", "final", "message"}:
+        return extract_text(event)
+    return ""
+
+
+def _dedupe_stream_text(emitted_text: str, text: str) -> str:
+    if not emitted_text:
+        return text
+    if text.startswith(emitted_text):
+        return text[len(emitted_text) :]
+    return text
+
+
+def _extract_stream_delta_text(value: object) -> str:
+    if isinstance(value, str):
+        return ""
+
+    if isinstance(value, list):
+        return "".join(_extract_stream_delta_text(item) for item in value)
+
+    if not isinstance(value, dict):
+        return ""
+
+    for key in ("delta", "partial", "chunk"):
+        nested = value.get(key)
+        if isinstance(nested, str):
+            return nested
+        text = _extract_stream_text_leaf(nested)
+        if text:
+            return text
+
+    if value.get("type") in {
+        "content_block_delta",
+        "message_delta",
+        "response.output_text.delta",
+        "thread.message.delta",
+        "assistant_delta",
+    }:
+        text = _extract_stream_text_leaf(value)
+        if text:
+            return text
+
+    for nested in value.values():
+        text = _extract_stream_delta_text(nested)
+        if text:
+            return text
+
+    return ""
+
+
+def _extract_stream_text_leaf(value: object) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        return "".join(_extract_stream_text_leaf(item) for item in value)
+    if isinstance(value, dict):
+        for key in ("text", "content", "output_text"):
+            nested = value.get(key)
+            if isinstance(nested, str):
+                return nested
+        for nested in value.values():
+            text = _extract_stream_text_leaf(nested)
+            if text:
+                return text
     return ""
 
 
