@@ -24,6 +24,12 @@ Install with the FastAPI-based local server:
 pip install "sub_api[server] @ git+https://github.com/0n1ac/sub_api.git"
 ```
 
+Install with tokenizer-based token estimates:
+
+```bash
+pip install "sub_api[tokenizer] @ git+https://github.com/0n1ac/sub_api.git"
+```
+
 For local development:
 
 ```bash
@@ -92,6 +98,7 @@ result = client.call_result(
 
 print(result.content)
 print(result.latency.as_dict())
+print(result.usage.as_openai_usage(), result.usage.source)
 ```
 
 **OpenAI-style chat completions:**
@@ -107,6 +114,8 @@ response = client.chat.completions.create(
 
 print(response.choices[0].message.content)
 print(response.sub_api["latency_ms"])
+print(response.usage)
+print(response.sub_api["usage"]["source"])
 ```
 
 **Check backend availability:**
@@ -127,7 +136,7 @@ You can also use `sub_api` straight from your terminal!
 sub_api ask "Explain decorators in Python." --backend gemini --model gemini-2.5-pro
 ```
 
-**Print latency stats:**
+**Print latency and token stats:**
 ```bash
 sub_api ask "Explain decorators in Python." --backend gemini --stats
 ```
@@ -240,7 +249,7 @@ SUB_API_DEFAULT_MODEL_CODEX=gpt-5
 
 ## ⏱️ Latency Stats
 
-`sub_api` records best-effort latency stats for each completed backend call.
+`sub_api` records latency stats for each completed backend call.
 
 ```json
 {
@@ -256,12 +265,37 @@ SUB_API_DEFAULT_MODEL_CODEX=gpt-5
 }
 ```
 
-- `spawn`: subprocess startup time
-- `execution`: subprocess communication time
+- `spawn`: subprocess start through the first stdout byte
+- `execution`: first stdout byte through the last stdout byte
 - `parse`: stdout parsing / JSON decoding time
 - `total`: separately measured wall-clock time, not the sum of the other fields
 
-Stage values are best-effort and may be `null` when unavailable.
+Stage values may be `null` when unavailable.
+
+## 🔢 Token Stats
+
+OpenAI-style responses include the standard `usage` object. The reliability of those numbers is exposed separately through `sub_api.usage.source`.
+
+```json
+{
+  "usage": {
+    "prompt_tokens": 142,
+    "completion_tokens": 318,
+    "total_tokens": 460
+  },
+  "sub_api": {
+    "usage": {
+      "source": "heuristic"
+    }
+  }
+}
+```
+
+Possible sources:
+
+- `native`: the backend CLI provided token usage directly
+- `tiktoken_estimate`: estimated with optional `tiktoken`
+- `heuristic`: fallback estimate, currently length-based
 
 ## ⚠️ Limitations
 
@@ -269,5 +303,5 @@ A few things to keep in mind:
 - Streaming responses aren't supported yet.
 - Tool/function calling isn't supported.
 - Multimodal inputs (like images) aren't supported.
-- Token usage isn't tracked or calculated.
+- Token usage is provided, but may be estimated depending on `sub_api.usage.source`.
 - Under the hood, array messages are flattened into a single string prompt before hitting the backend CLI.

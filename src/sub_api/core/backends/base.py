@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import math
 import os
+import selectors
 import shutil
 import signal
 import subprocess
@@ -37,9 +39,25 @@ class ExecResult:
 
 
 @dataclass(frozen=True)
+class TokenUsage:
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    source: str
+
+    def as_openai_usage(self) -> dict[str, int]:
+        return {
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+            "total_tokens": self.total_tokens,
+        }
+
+
+@dataclass(frozen=True)
 class BackendResult:
     content: str
     latency: LatencyStats
+    usage: TokenUsage
 
 
 class Backend(ABC):
@@ -65,13 +83,17 @@ class Backend(ABC):
         if not content:
             raise BackendExecutionError(f"{self.cli_name} returned an empty response.")
 
+        usage = extract_native_usage(exec_result.stdout)
+        if usage is None:
+            usage = estimate_usage(prompt=prompt, completion=content, model=model)
+
         latency = LatencyStats(
             total=_elapsed_ms(total_start),
             spawn=exec_result.latency.spawn,
             execution=exec_result.latency.execution,
             parse=parse_ms,
         )
-        return BackendResult(content=content, latency=latency)
+        return BackendResult(content=content, latency=latency, usage=usage)
 
     def ensure_available(self) -> None:
         if shutil.which(self.cli_name) is None:
@@ -109,35 +131,85 @@ class Backend(ABC):
         timeout: float | None = None,
     ) -> ExecResult:
         effective_timeout = self.timeout if timeout is None else timeout
-        spawn_start = time.perf_counter()
+        total_start = time.perf_counter()
         process = subprocess.Popen(
             args,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             env=dict(env) if env is not None else None,
-            text=True,
             start_new_session=True,
         )
-        spawn_ms = _elapsed_ms(spawn_start)
+
+        stdout_chunks: list[bytes] = []
+        stderr_chunks: list[bytes] = []
+        first_stdout_at: float | None = None
+        last_stdout_at: float | None = None
+
+        timed_out = False
+        selector = selectors.DefaultSelector()
+        assert process.stdout is not None
+        assert process.stderr is not None
+        selector.register(process.stdout, selectors.EVENT_READ, stdout_chunks)
+        selector.register(process.stderr, selectors.EVENT_READ, stderr_chunks)
+
+        deadline = total_start + effective_timeout
 
         try:
-            execution_start = time.perf_counter()
-            stdout, stderr = process.communicate(timeout=effective_timeout)
-            execution_ms = _elapsed_ms(execution_start)
-        except subprocess.TimeoutExpired as exc:
-            _kill_process_group(process.pid)
-            stdout, stderr = process.communicate()
-            raise BackendTimeout(
-                f"{self.cli_name} timed out after {effective_timeout:g} seconds."
-            ) from exc
+            while selector.get_map():
+                remaining = deadline - time.perf_counter()
+                if remaining <= 0:
+                    timed_out = True
+                    break
 
-        if process.returncode != 0:
-            message = stderr.strip() or stdout.strip() or f"exit code {process.returncode}"
+                events = selector.select(timeout=min(0.1, remaining))
+                if not events and process.poll() is not None:
+                    _drain_ready_streams(selector)
+                    break
+
+                for key, _ in events:
+                    chunk = os.read(key.fileobj.fileno(), 8192)
+                    if not chunk:
+                        selector.unregister(key.fileobj)
+                        continue
+
+                    key.data.append(chunk)
+                    if key.data is stdout_chunks:
+                        now = time.perf_counter()
+                        if first_stdout_at is None:
+                            first_stdout_at = now
+                        last_stdout_at = now
+
+            if timed_out:
+                _kill_process_group(process.pid)
+                _drain_process_pipes(process, stdout_chunks, stderr_chunks)
+                raise BackendTimeout(
+                    f"{self.cli_name} timed out after {effective_timeout:g} seconds."
+                )
+
+            try:
+                return_code = process.wait(timeout=1)
+            except subprocess.TimeoutExpired as exc:
+                _kill_process_group(process.pid)
+                _drain_process_pipes(process, stdout_chunks, stderr_chunks)
+                raise BackendTimeout(
+                    f"{self.cli_name} timed out after {effective_timeout:g} seconds."
+                ) from exc
+        finally:
+            selector.close()
+
+        stdout = b"".join(stdout_chunks).decode("utf-8", errors="replace")
+        stderr = b"".join(stderr_chunks).decode("utf-8", errors="replace")
+
+        if return_code != 0:
+            message = stderr.strip() or stdout.strip() or f"exit code {return_code}"
             raise BackendExecutionError(f"{self.cli_name} failed: {message}")
 
         return ExecResult(
             stdout=stdout,
-            latency=LatencyStats(spawn=spawn_ms, execution=execution_ms),
+            latency=LatencyStats(
+                spawn=_interval_ms(total_start, first_stdout_at),
+                execution=_interval_ms(first_stdout_at, last_stdout_at),
+            ),
         )
 
     def _model_args(self, model: str | None) -> list[str]:
@@ -193,6 +265,165 @@ def extract_text(value: object) -> str:
     return ""
 
 
+def extract_native_usage(stdout: str) -> TokenUsage | None:
+    try:
+        data = json.loads(stdout)
+    except json.JSONDecodeError:
+        return None
+
+    usage_dict = _find_usage_dict(data)
+    if usage_dict is None:
+        return None
+
+    prompt_tokens = _first_int(
+        usage_dict,
+        (
+            "prompt_tokens",
+            "input_tokens",
+            "promptTokenCount",
+            "inputTokens",
+            "inputTokenCount",
+        ),
+    )
+    completion_tokens = _first_int(
+        usage_dict,
+        (
+            "completion_tokens",
+            "output_tokens",
+            "candidatesTokenCount",
+            "outputTokens",
+            "outputTokenCount",
+        ),
+    )
+    total_tokens = _first_int(
+        usage_dict,
+        (
+            "total_tokens",
+            "totalTokenCount",
+            "totalTokens",
+        ),
+    )
+
+    if prompt_tokens is None and completion_tokens is None and total_tokens is None:
+        return None
+
+    if total_tokens is None:
+        total_tokens = (prompt_tokens or 0) + (completion_tokens or 0)
+    if prompt_tokens is None:
+        prompt_tokens = max(total_tokens - (completion_tokens or 0), 0)
+    if completion_tokens is None:
+        completion_tokens = max(total_tokens - prompt_tokens, 0)
+
+    return TokenUsage(
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        total_tokens=total_tokens,
+        source="native",
+    )
+
+
+def estimate_usage(prompt: str, completion: str, model: str | None = None) -> TokenUsage:
+    tiktoken_counts = _estimate_with_tiktoken(prompt, completion, model=model)
+    if tiktoken_counts is not None:
+        prompt_tokens, completion_tokens = tiktoken_counts
+        return TokenUsage(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=prompt_tokens + completion_tokens,
+            source="tiktoken_estimate",
+        )
+
+    prompt_tokens = _heuristic_token_count(prompt)
+    completion_tokens = _heuristic_token_count(completion)
+    return TokenUsage(
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        total_tokens=prompt_tokens + completion_tokens,
+        source="heuristic",
+    )
+
+
+def _find_usage_dict(value: object) -> dict[str, object] | None:
+    if isinstance(value, dict):
+        for key in ("usage", "usageMetadata", "usage_metadata", "tokenUsage"):
+            nested = value.get(key)
+            if isinstance(nested, dict):
+                return nested
+
+        if _looks_like_usage_dict(value):
+            return value
+
+        for nested in value.values():
+            found = _find_usage_dict(nested)
+            if found is not None:
+                return found
+
+    if isinstance(value, list):
+        for item in value:
+            found = _find_usage_dict(item)
+            if found is not None:
+                return found
+
+    return None
+
+
+def _looks_like_usage_dict(value: dict[str, object]) -> bool:
+    token_keys = {
+        "prompt_tokens",
+        "input_tokens",
+        "promptTokenCount",
+        "inputTokens",
+        "inputTokenCount",
+        "completion_tokens",
+        "output_tokens",
+        "candidatesTokenCount",
+        "outputTokens",
+        "outputTokenCount",
+        "total_tokens",
+        "totalTokenCount",
+        "totalTokens",
+    }
+    return any(key in value for key in token_keys)
+
+
+def _first_int(value: dict[str, object], keys: tuple[str, ...]) -> int | None:
+    for key in keys:
+        raw = value.get(key)
+        if isinstance(raw, bool):
+            continue
+        if isinstance(raw, int):
+            return raw
+        if isinstance(raw, float):
+            return int(raw)
+        if isinstance(raw, str) and raw.isdigit():
+            return int(raw)
+    return None
+
+
+def _estimate_with_tiktoken(
+    prompt: str,
+    completion: str,
+    model: str | None,
+) -> tuple[int, int] | None:
+    try:
+        import tiktoken  # type: ignore[import-not-found]
+    except ImportError:
+        return None
+
+    try:
+        encoding = tiktoken.encoding_for_model(model) if model else tiktoken.get_encoding("cl100k_base")
+    except Exception:
+        encoding = tiktoken.get_encoding("cl100k_base")
+
+    return len(encoding.encode(prompt)), len(encoding.encode(completion))
+
+
+def _heuristic_token_count(text: str) -> int:
+    if not text:
+        return 0
+    return max(1, math.ceil(len(text) / 4))
+
+
 def _kill_process_group(pid: int) -> None:
     try:
         os.killpg(pid, signal.SIGKILL)
@@ -202,3 +433,41 @@ def _kill_process_group(pid: int) -> None:
 
 def _elapsed_ms(start: float) -> int:
     return int(round((time.perf_counter() - start) * 1000))
+
+
+def _interval_ms(start: float | None, end: float | None) -> int | None:
+    if start is None or end is None:
+        return None
+    return int(round((end - start) * 1000))
+
+
+def _drain_ready_streams(selector: selectors.BaseSelector) -> None:
+    for key in list(selector.get_map().values()):
+        while True:
+            try:
+                chunk = os.read(key.fileobj.fileno(), 8192)
+            except BlockingIOError:
+                break
+            if not chunk:
+                try:
+                    selector.unregister(key.fileobj)
+                except KeyError:
+                    pass
+                break
+            key.data.append(chunk)
+
+
+def _drain_process_pipes(
+    process: subprocess.Popen[bytes],
+    stdout_chunks: list[bytes],
+    stderr_chunks: list[bytes],
+) -> None:
+    try:
+        stdout, stderr = process.communicate(timeout=1)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        stdout, stderr = process.communicate()
+    if stdout:
+        stdout_chunks.append(stdout)
+    if stderr:
+        stderr_chunks.append(stderr)

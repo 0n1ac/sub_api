@@ -118,8 +118,12 @@ class _CompletionsResource:
         return make_chat_completion_response(
             model=selection.response_model,
             content=result.content,
+            usage=result.usage.as_openai_usage(),
             sub_api={
                 "backend": selection.backend,
                 "latency_ms": result.latency.as_dict(),
+                "usage": {
+                    "source": result.usage.source,
+                },
             },
         )

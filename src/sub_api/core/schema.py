@@ -45,6 +45,7 @@ class ChatCompletionResponse(BaseModel):
 def make_chat_completion_response(
     model: str,
     content: str,
+    usage: dict[str, Any] | None = None,
     sub_api: dict[str, Any] | None = None,
 ) -> ChatCompletionResponse:
     return ChatCompletionResponse(
@@ -57,5 +58,6 @@ def make_chat_completion_response(
                 message=CompletionMessage(content=content),
             )
         ],
+        usage=usage,
         sub_api=sub_api,
     )

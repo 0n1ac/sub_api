@@ -18,6 +18,9 @@ server = [
     "fastapi>=0.110,<1.0",
     "uvicorn[standard]>=0.27,<1.0",
 ]
+tokenizer = [
+    "tiktoken>=0.7,<1.0",
+]
 
 [project.scripts]
 sub_api = "sub_api.cli:main"

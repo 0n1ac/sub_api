@@ -3,7 +3,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 from sub_api import SubApiClient
-from sub_api.core.backends.base import BackendResult, LatencyStats
+from sub_api.core.backends.base import BackendResult, LatencyStats, TokenUsage
 
 
 class FakeBackend:
@@ -19,6 +19,12 @@ class FakeBackend:
         return BackendResult(
             content=f"fake response ({model_label}): {prompt}",
             latency=LatencyStats(total=12, spawn=1, execution=10, parse=1),
+            usage=TokenUsage(
+                prompt_tokens=2,
+                completion_tokens=3,
+                total_tokens=5,
+                source="heuristic",
+            ),
         )
 
 
@@ -50,6 +56,12 @@ def main() -> None:
         )
         assert response.sub_api is not None
         assert response.sub_api["latency_ms"]["total"] == 12
+        assert response.usage == {
+            "prompt_tokens": 2,
+            "completion_tokens": 3,
+            "total_tokens": 5,
+        }
+        assert response.sub_api["usage"]["source"] == "heuristic"
 
     # A short success message keeps this script useful in CI or quick local checks.
     print("direct client smoke test passed")

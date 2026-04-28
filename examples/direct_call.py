@@ -61,6 +61,10 @@ def main() -> int:
     print(result.content)
     if args.stats:
         print(f"latency_ms={result.latency.as_dict()}", file=sys.stderr)
+        print(
+            f"usage={result.usage.as_openai_usage()} source={result.usage.source}",
+            file=sys.stderr,
+        )
     return 0
 
 

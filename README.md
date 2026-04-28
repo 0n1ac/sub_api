@@ -41,6 +41,12 @@ Install with OpenAI-compatible server support:
 pip install "sub_api[server] @ git+https://github.com/0n1ac/sub_api.git"
 ```
 
+Install with tokenizer-based token estimates:
+
+```bash
+pip install "sub_api[tokenizer] @ git+https://github.com/0n1ac/sub_api.git"
+```
+
 From source for development:
 
 ```bash
@@ -92,6 +98,7 @@ result = client.call_result(
 
 print(result.content)
 print(result.latency.as_dict())
+print(result.usage.as_openai_usage(), result.usage.source)
 ```
 
 ### 2. OpenAI-Style Interface
@@ -107,6 +114,8 @@ response = client.chat.completions.create(
 
 print(response.choices[0].message.content)
 print(response.sub_api["latency_ms"])
+print(response.usage)
+print(response.sub_api["usage"]["source"])
 ```
 
 ### 3. Terminal CLI
@@ -182,7 +191,7 @@ For more details, check out the full guides:
 
 - No streaming responses (yet)
 - No tool/function calling
-- No token usage accounting
+- Token usage may be estimated depending on `sub_api.usage.source`
 - Message arrays are serialized into a single prompt string under the hood
 - CLI output formats might break if upstream tools change their output structure
 
@@ -204,7 +213,32 @@ OpenAI-style responses include `sub_api.latency_ms`:
 }
 ```
 
-`total` is measured separately as wall-clock time. Stage values are best-effort measurements and may be `null` if a stage cannot be measured.
+`spawn` measures subprocess start through the first stdout byte, `execution` measures first stdout byte through the last stdout byte, and `parse` measures output parsing time. `total` is measured separately as wall-clock time. Stage values may be `null` if a stage cannot be measured.
+
+## Token Stats
+
+OpenAI-style responses include the standard `usage` object. The reliability of those numbers is exposed separately through `sub_api.usage.source`.
+
+```json
+{
+  "usage": {
+    "prompt_tokens": 142,
+    "completion_tokens": 318,
+    "total_tokens": 460
+  },
+  "sub_api": {
+    "usage": {
+      "source": "heuristic"
+    }
+  }
+}
+```
+
+Possible sources:
+
+- `native`: the backend CLI provided token usage directly
+- `tiktoken_estimate`: estimated with optional `tiktoken`
+- `heuristic`: fallback estimate, currently length-based
 
 ## 📄 License
 

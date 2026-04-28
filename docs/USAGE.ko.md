@@ -24,6 +24,12 @@ FastAPI 기반의 로컬 서버 기능까지 포함해 설치하려면:
 pip install "sub_api[server] @ git+https://github.com/0n1ac/sub_api.git"
 ```
 
+tokenizer 기반 토큰 추정 기능까지 포함해 설치하려면:
+
+```bash
+pip install "sub_api[tokenizer] @ git+https://github.com/0n1ac/sub_api.git"
+```
+
 로컬 개발 환경을 세팅하려면:
 
 ```bash
@@ -92,6 +98,7 @@ result = client.call_result(
 
 print(result.content)
 print(result.latency.as_dict())
+print(result.usage.as_openai_usage(), result.usage.source)
 ```
 
 **OpenAI 스타일의 chat completions 호출:**
@@ -107,6 +114,8 @@ response = client.chat.completions.create(
 
 print(response.choices[0].message.content)
 print(response.sub_api["latency_ms"])
+print(response.usage)
+print(response.sub_api["usage"]["source"])
 ```
 
 **백엔드 도구 사용 가능 여부 확인:**
@@ -127,7 +136,7 @@ print(client.available_backends())
 sub_api ask "Python 데코레이터를 설명해줘." --backend gemini --model gemini-2.5-pro
 ```
 
-**latency stats 함께 출력:**
+**latency와 token stats 함께 출력:**
 ```bash
 sub_api ask "Python 데코레이터를 설명해줘." --backend gemini --stats
 ```
@@ -240,7 +249,7 @@ SUB_API_DEFAULT_MODEL_CODEX=gpt-5
 
 ## ⏱️ Latency Stats
 
-`sub_api`는 완료된 백엔드 호출마다 best-effort latency stats를 기록합니다.
+`sub_api`는 완료된 백엔드 호출마다 latency stats를 기록합니다.
 
 ```json
 {
@@ -256,12 +265,37 @@ SUB_API_DEFAULT_MODEL_CODEX=gpt-5
 }
 ```
 
-- `spawn`: subprocess 시작 시간
-- `execution`: subprocess 통신 시간
+- `spawn`: subprocess 시작 ~ 첫 stdout byte 직전까지의 시간
+- `execution`: 첫 stdout byte ~ 마지막 stdout byte까지의 시간
 - `parse`: stdout 파싱 / JSON 디코딩 시간
 - `total`: 별도로 측정한 wall-clock 시간이며, 나머지 필드의 합이 아닙니다.
 
-각 단계 값은 best-effort이며, 측정할 수 없는 경우 `null`일 수 있습니다.
+각 단계 값은 측정할 수 없는 경우 `null`일 수 있습니다.
+
+## 🔢 Token Stats
+
+OpenAI-style 응답에는 표준 `usage` 객체가 포함됩니다. 이 숫자의 신뢰도는 별도의 `sub_api.usage.source` 필드로 표시합니다.
+
+```json
+{
+  "usage": {
+    "prompt_tokens": 142,
+    "completion_tokens": 318,
+    "total_tokens": 460
+  },
+  "sub_api": {
+    "usage": {
+      "source": "heuristic"
+    }
+  }
+}
+```
+
+가능한 source 값:
+
+- `native`: 백엔드 CLI가 token usage를 직접 제공한 값
+- `tiktoken_estimate`: optional `tiktoken`으로 추정한 값
+- `heuristic`: fallback 추정값. 현재는 길이 기반입니다.
 
 ## ⚠️ 현재 제한 사항
 
@@ -269,5 +303,5 @@ SUB_API_DEFAULT_MODEL_CODEX=gpt-5
 - 텍스트 스트리밍(Streaming)은 아직 지원하지 않습니다.
 - 함수 호출(Tool/Function calling)은 지원하지 않습니다.
 - 이미지 등 멀티모달(Multimodal) 입력은 불가능합니다.
-- 토큰 사용량 계산 기능은 포함되어 있지 않습니다.
+- 토큰 사용량은 제공되지만, `sub_api.usage.source`에 따라 추정치일 수 있습니다.
 - 백엔드 CLI로 전달될 때 배열 형태의 메시지 이력이 내부적으로 하나의 긴 텍스트 프롬프트로 병합됩니다.

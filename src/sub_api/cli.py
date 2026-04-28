@@ -67,6 +67,7 @@ def cmd_ask(args: argparse.Namespace) -> int:
         print(result.content)
         if args.stats:
             print(_format_latency_stats(result.latency.as_dict()), file=sys.stderr)
+            print(_format_token_stats(result.usage.as_openai_usage(), result.usage.source), file=sys.stderr)
     except (BackendExecutionError, BackendNotAvailable, BackendTimeout) as exc:
         print(f"오류: {exc}", file=sys.stderr)
         return 1
@@ -96,6 +97,16 @@ def _format_latency_stats(stats: dict[str, int | None]) -> str:
         rendered = "null" if value is None else f"{value}ms"
         parts.append(f"{key}={rendered}")
     return "latency: " + " ".join(parts)
+
+
+def _format_token_stats(usage: dict[str, int], source: str) -> str:
+    return (
+        "tokens: "
+        f"prompt={usage['prompt_tokens']} "
+        f"completion={usage['completion_tokens']} "
+        f"total={usage['total_tokens']} "
+        f"source={source}"
+    )
 
 
 def cmd_status() -> int:
