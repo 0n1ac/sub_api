@@ -20,6 +20,7 @@ def main() -> int:
         help="Optional backend-specific model name, e.g. gemini-2.5-pro or sonnet.",
     )
     parser.add_argument("--timeout", type=float, default=60.0)
+    parser.add_argument("--stats", action="store_true", help="Print latency stats to stderr.")
     args = parser.parse_args()
 
     # Accept either a positional prompt:
@@ -36,7 +37,7 @@ def main() -> int:
     client = SubApiClient(timeout=args.timeout)
 
     try:
-        answer = client.call(
+        result = client.call_result(
             prompt=prompt,
             backend=args.backend,
             model=args.model,
@@ -55,8 +56,11 @@ def main() -> int:
         print(f"백엔드 실행에 실패했습니다: {exc}", file=sys.stderr)
         return 1
 
-    # The direct call API returns plain assistant text.
-    print(answer)
+    # call_result returns assistant text plus runtime metadata.
+    # Use client.call(...) if you only need the plain assistant text.
+    print(result.content)
+    if args.stats:
+        print(f"latency_ms={result.latency.as_dict()}", file=sys.stderr)
     return 0
 
 

@@ -79,6 +79,21 @@ answer = client.call(
 print(answer)
 ```
 
+**latency metadata 포함 호출:**
+```python
+from sub_api import SubApiClient
+
+client = SubApiClient()
+result = client.call_result(
+    prompt="안녕!",
+    backend="gemini",
+    model="gemini-2.5-pro",
+)
+
+print(result.content)
+print(result.latency.as_dict())
+```
+
 **OpenAI 스타일의 chat completions 호출:**
 OpenAI SDK 사용 경험이 있다면 아주 익숙하실 겁니다!
 ```python
@@ -91,6 +106,7 @@ response = client.chat.completions.create(
 )
 
 print(response.choices[0].message.content)
+print(response.sub_api["latency_ms"])
 ```
 
 **백엔드 도구 사용 가능 여부 확인:**
@@ -109,6 +125,11 @@ print(client.available_backends())
 **간단한 질문 던지기:**
 ```bash
 sub_api ask "Python 데코레이터를 설명해줘." --backend gemini --model gemini-2.5-pro
+```
+
+**latency stats 함께 출력:**
+```bash
+sub_api ask "Python 데코레이터를 설명해줘." --backend gemini --stats
 ```
 
 **stdin(표준 입력)으로 프롬프트 넘기기:**
@@ -134,6 +155,7 @@ sub_api version
 ```bash
 python examples/direct_call.py "안녕" --backend gemini --model gemini-2.5-pro
 echo "간단히 요약해줘" | python examples/direct_call.py --backend claude --model sonnet
+python examples/direct_call.py "안녕" --backend gemini --stats
 ```
 
 **간단한 스모크 테스트 (인증 불필요, mock 사용):**
@@ -215,6 +237,31 @@ SUB_API_DEFAULT_MODEL_GEMINI=gemini-2.5-pro
 SUB_API_DEFAULT_MODEL_CLAUDE=sonnet
 SUB_API_DEFAULT_MODEL_CODEX=gpt-5
 ```
+
+## ⏱️ Latency Stats
+
+`sub_api`는 완료된 백엔드 호출마다 best-effort latency stats를 기록합니다.
+
+```json
+{
+  "sub_api": {
+    "backend": "gemini",
+    "latency_ms": {
+      "total": 2431,
+      "spawn": 180,
+      "execution": 2120,
+      "parse": 131
+    }
+  }
+}
+```
+
+- `spawn`: subprocess 시작 시간
+- `execution`: subprocess 통신 시간
+- `parse`: stdout 파싱 / JSON 디코딩 시간
+- `total`: 별도로 측정한 wall-clock 시간이며, 나머지 필드의 합이 아닙니다.
+
+각 단계 값은 best-effort이며, 측정할 수 없는 경우 `null`일 수 있습니다.
 
 ## ⚠️ 현재 제한 사항
 

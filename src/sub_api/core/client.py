@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from sub_api.core.backends import BACKENDS, get_backend
-from sub_api.core.backends.base import messages_to_prompt
+from sub_api.core.backends.base import BackendResult, messages_to_prompt
 from sub_api.core.config import get_settings
 from sub_api.core.errors import BackendExecutionError
 from sub_api.core.modeling import ModelSelection, resolve_model_selection
@@ -19,6 +19,7 @@ class SubApiClient:
         settings = get_settings()
         self.default_backend = (default_backend or settings.default_backend).lower()
         self.timeout = settings.timeout if timeout is None else timeout
+        self.last_result: BackendResult | None = None
         self.chat = _ChatResource(self)
 
     def call(
@@ -29,12 +30,29 @@ class SubApiClient:
         model: str | None = None,
         timeout: float | None = None,
     ) -> str:
+        return self.call_result(
+            prompt=prompt,
+            backend=backend,
+            model=model,
+            timeout=timeout,
+        ).content
+
+    def call_result(
+        self,
+        prompt: str,
+        *,
+        backend: str | None = None,
+        model: str | None = None,
+        timeout: float | None = None,
+    ) -> BackendResult:
         selection = self._resolve_selection(backend=backend, model=model)
         backend_impl = get_backend(
             selection.backend,
             timeout=self.timeout if timeout is None else timeout,
         )
-        return backend_impl.call(prompt, model=selection.model).content
+        result = backend_impl.call(prompt, model=selection.model)
+        self.last_result = result
+        return result
 
     def is_available(self, backend: str) -> bool:
         selection = self._resolve_selection(backend=backend)
@@ -91,10 +109,17 @@ class _CompletionsResource:
         ]
         selection = self._client._resolve_selection(model=model)
         prompt = messages_to_prompt(parsed_messages)
-        content = self._client.call(
+        result = self._client.call_result(
             prompt=prompt,
             backend=selection.backend,
             model=selection.model,
             timeout=timeout,
         )
-        return make_chat_completion_response(model=selection.response_model, content=content)
+        return make_chat_completion_response(
+            model=selection.response_model,
+            content=result.content,
+            sub_api={
+                "backend": selection.backend,
+                "latency_ms": result.latency.as_dict(),
+            },
+        )

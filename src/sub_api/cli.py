@@ -21,6 +21,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Backend-specific model name, or alias such as gemini/gemini-2.5-pro.",
     )
     ask_parser.add_argument("--timeout", type=float, default=None)
+    ask_parser.add_argument(
+        "--stats",
+        action="store_true",
+        help="Print latency stats to stderr after the answer.",
+    )
 
     serve_parser = subparsers.add_parser("serve", help="Run the OpenAI-compatible HTTP server.")
     serve_parser.add_argument("--host", default="127.0.0.1")
@@ -53,14 +58,15 @@ def cmd_ask(args: argparse.Namespace) -> int:
 
     client = SubApiClient(timeout=args.timeout)
     try:
-        print(
-            client.call(
-                prompt=prompt,
-                backend=args.backend,
-                model=args.model,
-                timeout=args.timeout,
-            )
+        result = client.call_result(
+            prompt=prompt,
+            backend=args.backend,
+            model=args.model,
+            timeout=args.timeout,
         )
+        print(result.content)
+        if args.stats:
+            print(_format_latency_stats(result.latency.as_dict()), file=sys.stderr)
     except (BackendExecutionError, BackendNotAvailable, BackendTimeout) as exc:
         print(f"오류: {exc}", file=sys.stderr)
         return 1
@@ -81,6 +87,15 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
     uvicorn.run(app, host=args.host, port=args.port, reload=args.reload)
     return 0
+
+
+def _format_latency_stats(stats: dict[str, int | None]) -> str:
+    parts = []
+    for key in ("total", "spawn", "execution", "parse"):
+        value = stats.get(key)
+        rendered = "null" if value is None else f"{value}ms"
+        parts.append(f"{key}={rendered}")
+    return "latency: " + " ".join(parts)
 
 
 def cmd_status() -> int:

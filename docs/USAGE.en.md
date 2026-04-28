@@ -79,6 +79,21 @@ answer = client.call(
 print(answer)
 ```
 
+**Call with latency metadata:**
+```python
+from sub_api import SubApiClient
+
+client = SubApiClient()
+result = client.call_result(
+    prompt="Hello!",
+    backend="gemini",
+    model="gemini-2.5-pro",
+)
+
+print(result.content)
+print(result.latency.as_dict())
+```
+
 **OpenAI-style chat completions:**
 If you're already used to the OpenAI SDK, you'll feel right at home:
 ```python
@@ -91,6 +106,7 @@ response = client.chat.completions.create(
 )
 
 print(response.choices[0].message.content)
+print(response.sub_api["latency_ms"])
 ```
 
 **Check backend availability:**
@@ -109,6 +125,11 @@ You can also use `sub_api` straight from your terminal!
 **Ask a quick question:**
 ```bash
 sub_api ask "Explain decorators in Python." --backend gemini --model gemini-2.5-pro
+```
+
+**Print latency stats:**
+```bash
+sub_api ask "Explain decorators in Python." --backend gemini --stats
 ```
 
 **Pipe content from standard input:**
@@ -134,6 +155,7 @@ We've included some handy scripts to help you test things out.
 ```bash
 python examples/direct_call.py "Hello" --backend gemini --model gemini-2.5-pro
 echo "Summarize this" | python examples/direct_call.py --backend claude --model sonnet
+python examples/direct_call.py "Hello" --backend gemini --stats
 ```
 
 **Run a quick smoke test (mocks the backend, no auth needed):**
@@ -215,6 +237,31 @@ SUB_API_DEFAULT_MODEL_GEMINI=gemini-2.5-pro
 SUB_API_DEFAULT_MODEL_CLAUDE=sonnet
 SUB_API_DEFAULT_MODEL_CODEX=gpt-5
 ```
+
+## ⏱️ Latency Stats
+
+`sub_api` records best-effort latency stats for each completed backend call.
+
+```json
+{
+  "sub_api": {
+    "backend": "gemini",
+    "latency_ms": {
+      "total": 2431,
+      "spawn": 180,
+      "execution": 2120,
+      "parse": 131
+    }
+  }
+}
+```
+
+- `spawn`: subprocess startup time
+- `execution`: subprocess communication time
+- `parse`: stdout parsing / JSON decoding time
+- `total`: separately measured wall-clock time, not the sum of the other fields
+
+Stage values are best-effort and may be `null` when unavailable.
 
 ## ⚠️ Limitations
 

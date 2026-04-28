@@ -3,7 +3,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 from sub_api import SubApiClient
-from sub_api.core.backends.base import BackendResult
+from sub_api.core.backends.base import BackendResult, LatencyStats
 
 
 class FakeBackend:
@@ -16,7 +16,10 @@ class FakeBackend:
         # Real backends return BackendResult(content=...) after subprocess output
         # has been parsed. The fake response keeps assertions deterministic.
         model_label = model or "default"
-        return BackendResult(content=f"fake response ({model_label}): {prompt}")
+        return BackendResult(
+            content=f"fake response ({model_label}): {prompt}",
+            latency=LatencyStats(total=12, spawn=1, execution=10, parse=1),
+        )
 
 
 def main() -> None:
@@ -45,6 +48,8 @@ def main() -> None:
             response.choices[0].message.content
             == "fake response (gemini-2.5-pro): user: Hello"
         )
+        assert response.sub_api is not None
+        assert response.sub_api["latency_ms"]["total"] == 12
 
     # A short success message keeps this script useful in CI or quick local checks.
     print("direct client smoke test passed")

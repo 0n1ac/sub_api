@@ -3,13 +3,13 @@ from __future__ import annotations
 import json
 import os
 
-from sub_api.core.backends.base import Backend, parse_jsonish_text
+from sub_api.core.backends.base import Backend, ExecResult, parse_jsonish_text
 
 
 class GeminiBackend(Backend):
     cli_name = "gemini"
 
-    def run_cli(self, prompt: str, model: str | None = None) -> str:
+    def run_cli(self, prompt: str, model: str | None = None) -> ExecResult:
         env = os.environ.copy()
         env.setdefault("GEMINI_CLI_TRUST_WORKSPACE", "true")
 

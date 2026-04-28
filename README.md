@@ -81,6 +81,19 @@ answer = client.call(
 print(answer)
 ```
 
+Use `call_result(...)` when you also need latency metadata:
+
+```python
+result = client.call_result(
+    prompt="Hello!",
+    backend="gemini",
+    model="gemini-2.5-pro",
+)
+
+print(result.content)
+print(result.latency.as_dict())
+```
+
 ### 2. OpenAI-Style Interface
 
 ```python
@@ -93,6 +106,7 @@ response = client.chat.completions.create(
 )
 
 print(response.choices[0].message.content)
+print(response.sub_api["latency_ms"])
 ```
 
 ### 3. Terminal CLI
@@ -103,6 +117,9 @@ sub_api ask "Explain this project in one sentence." --backend gemini --model gem
 
 # Pipe input
 echo "Summarize this text" | sub_api ask --backend claude --model sonnet
+
+# Print latency stats to stderr
+sub_api ask "Hello" --backend gemini --stats
 ```
 
 ### 4. Local API Server
@@ -168,6 +185,26 @@ For more details, check out the full guides:
 - No token usage accounting
 - Message arrays are serialized into a single prompt string under the hood
 - CLI output formats might break if upstream tools change their output structure
+
+## Latency Stats
+
+OpenAI-style responses include `sub_api.latency_ms`:
+
+```json
+{
+  "sub_api": {
+    "backend": "gemini",
+    "latency_ms": {
+      "total": 2431,
+      "spawn": 180,
+      "execution": 2120,
+      "parse": 131
+    }
+  }
+}
+```
+
+`total` is measured separately as wall-clock time. Stage values are best-effort measurements and may be `null` if a stage cannot be measured.
 
 ## 📄 License
 

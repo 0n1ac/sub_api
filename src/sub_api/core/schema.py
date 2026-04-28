@@ -39,9 +39,14 @@ class ChatCompletionResponse(BaseModel):
     model: str
     choices: list[ChatCompletionChoice]
     usage: dict[str, Any] | None = None
+    sub_api: dict[str, Any] | None = None
 
 
-def make_chat_completion_response(model: str, content: str) -> ChatCompletionResponse:
+def make_chat_completion_response(
+    model: str,
+    content: str,
+    sub_api: dict[str, Any] | None = None,
+) -> ChatCompletionResponse:
     return ChatCompletionResponse(
         id=f"sub_api-{uuid.uuid4().hex}",
         created=int(time.time()),
@@ -52,4 +57,5 @@ def make_chat_completion_response(model: str, content: str) -> ChatCompletionRes
                 message=CompletionMessage(content=content),
             )
         ],
+        sub_api=sub_api,
     )

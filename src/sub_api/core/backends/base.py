@@ -5,6 +5,7 @@ import os
 import shutil
 import signal
 import subprocess
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Mapping
@@ -14,8 +15,31 @@ from sub_api.core.schema import ChatMessage
 
 
 @dataclass(frozen=True)
+class LatencyStats:
+    total: int | None = None
+    spawn: int | None = None
+    execution: int | None = None
+    parse: int | None = None
+
+    def as_dict(self) -> dict[str, int | None]:
+        return {
+            "total": self.total,
+            "spawn": self.spawn,
+            "execution": self.execution,
+            "parse": self.parse,
+        }
+
+
+@dataclass(frozen=True)
+class ExecResult:
+    stdout: str
+    latency: LatencyStats
+
+
+@dataclass(frozen=True)
 class BackendResult:
     content: str
+    latency: LatencyStats
 
 
 class Backend(ABC):
@@ -30,12 +54,24 @@ class Backend(ABC):
         return self.call(prompt, model=model)
 
     def call(self, prompt: str, model: str | None = None) -> BackendResult:
+        total_start = time.perf_counter()
         self.ensure_available()
-        stdout = self.run_cli(prompt, model=model)
-        content = self.parse_output(stdout).strip()
+        exec_result = self.run_cli(prompt, model=model)
+
+        parse_start = time.perf_counter()
+        content = self.parse_output(exec_result.stdout).strip()
+        parse_ms = _elapsed_ms(parse_start)
+
         if not content:
             raise BackendExecutionError(f"{self.cli_name} returned an empty response.")
-        return BackendResult(content=content)
+
+        latency = LatencyStats(
+            total=_elapsed_ms(total_start),
+            spawn=exec_result.latency.spawn,
+            execution=exec_result.latency.execution,
+            parse=parse_ms,
+        )
+        return BackendResult(content=content, latency=latency)
 
     def ensure_available(self) -> None:
         if shutil.which(self.cli_name) is None:
@@ -51,7 +87,7 @@ class Backend(ABC):
             return None
         for flag in ("--version", "-v"):
             try:
-                output = self._exec(self.cli_name, flag, timeout=5)
+                output = self._exec(self.cli_name, flag, timeout=5).stdout
             except BackendExecutionError:
                 continue
             first_line = output.strip().splitlines()
@@ -60,7 +96,7 @@ class Backend(ABC):
         return None
 
     @abstractmethod
-    def run_cli(self, prompt: str, model: str | None = None) -> str:
+    def run_cli(self, prompt: str, model: str | None = None) -> ExecResult:
         raise NotImplementedError
 
     def parse_output(self, stdout: str) -> str:
@@ -71,8 +107,9 @@ class Backend(ABC):
         *args: str,
         env: Mapping[str, str] | None = None,
         timeout: float | None = None,
-    ) -> str:
+    ) -> ExecResult:
         effective_timeout = self.timeout if timeout is None else timeout
+        spawn_start = time.perf_counter()
         process = subprocess.Popen(
             args,
             stdout=subprocess.PIPE,
@@ -81,9 +118,12 @@ class Backend(ABC):
             text=True,
             start_new_session=True,
         )
+        spawn_ms = _elapsed_ms(spawn_start)
 
         try:
+            execution_start = time.perf_counter()
             stdout, stderr = process.communicate(timeout=effective_timeout)
+            execution_ms = _elapsed_ms(execution_start)
         except subprocess.TimeoutExpired as exc:
             _kill_process_group(process.pid)
             stdout, stderr = process.communicate()
@@ -95,7 +135,10 @@ class Backend(ABC):
             message = stderr.strip() or stdout.strip() or f"exit code {process.returncode}"
             raise BackendExecutionError(f"{self.cli_name} failed: {message}")
 
-        return stdout
+        return ExecResult(
+            stdout=stdout,
+            latency=LatencyStats(spawn=spawn_ms, execution=execution_ms),
+        )
 
     def _model_args(self, model: str | None) -> list[str]:
         if model is None:
@@ -155,3 +198,7 @@ def _kill_process_group(pid: int) -> None:
         os.killpg(pid, signal.SIGKILL)
     except ProcessLookupError:
         return
+
+
+def _elapsed_ms(start: float) -> int:
+    return int(round((time.perf_counter() - start) * 1000))
