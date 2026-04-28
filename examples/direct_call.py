@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 
 from sub_api import BackendExecutionError, BackendNotAvailable, BackendTimeout, SubApiClient
@@ -26,6 +27,11 @@ def main() -> int:
         action="store_true",
         help="Print chunks as they arrive when the selected backend supports streaming stdout.",
     )
+    parser.add_argument(
+        "--disable-tools",
+        action="store_true",
+        help="Disable backend tool use for this call when supported. Currently affects Gemini.",
+    )
     args = parser.parse_args()
 
     # Accept either a positional prompt:
@@ -42,6 +48,9 @@ def main() -> int:
     client = SubApiClient(timeout=args.timeout)
 
     try:
+        if args.disable_tools:
+            os.environ["SUB_API_GEMINI_DISABLE_TOOLS"] = "true"
+
         if args.stream:
             # Streaming still uses the same backend/model selection path. Some
             # CLIs only emit stdout after the final answer; those backends fall
@@ -63,6 +72,7 @@ def main() -> int:
                     f"source={stream_result.result.usage.source}",
                     file=sys.stderr,
                 )
+                print(f"tools={list(stream_result.result.tools)}", file=sys.stderr)
             return 0
 
         result = client.call_result(
@@ -93,6 +103,7 @@ def main() -> int:
             f"usage={result.usage.as_openai_usage()} source={result.usage.source}",
             file=sys.stderr,
         )
+        print(f"tools={list(result.tools)}", file=sys.stderr)
     return 0
 
 

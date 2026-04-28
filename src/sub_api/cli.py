@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.metadata
+import os
 import sys
 
 from sub_api import BackendExecutionError, BackendNotAvailable, BackendTimeout, SubApiClient
@@ -30,6 +31,11 @@ def main(argv: list[str] | None = None) -> int:
         "--stream",
         action="store_true",
         help="Stream stdout chunks as they arrive when the backend supports it.",
+    )
+    ask_parser.add_argument(
+        "--disable-tools",
+        action="store_true",
+        help="Disable backend tool use for this call when supported. Currently affects Gemini.",
     )
 
     serve_parser = subparsers.add_parser("serve", help="Run the OpenAI-compatible HTTP server.")
@@ -63,6 +69,9 @@ def cmd_ask(args: argparse.Namespace) -> int:
 
     client = SubApiClient(timeout=args.timeout)
     try:
+        if args.disable_tools:
+            os.environ["SUB_API_GEMINI_DISABLE_TOOLS"] = "true"
+
         if args.stream:
             stream_result = client.stream_result(
                 prompt=prompt,
@@ -82,6 +91,7 @@ def cmd_ask(args: argparse.Namespace) -> int:
                     ),
                     file=sys.stderr,
                 )
+                print(_format_tool_stats(stream_result.result.tools), file=sys.stderr)
             return 0
 
         result = client.call_result(
@@ -94,6 +104,7 @@ def cmd_ask(args: argparse.Namespace) -> int:
         if args.stats:
             print(_format_latency_stats(result.latency.as_dict()), file=sys.stderr)
             print(_format_token_stats(result.usage.as_openai_usage(), result.usage.source), file=sys.stderr)
+            print(_format_tool_stats(result.tools), file=sys.stderr)
     except (BackendExecutionError, BackendNotAvailable, BackendTimeout) as exc:
         print(f"오류: {exc}", file=sys.stderr)
         return 1
@@ -118,7 +129,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
 def _format_latency_stats(stats: dict[str, int | None]) -> str:
     parts = []
-    for key in ("total", "queued", "spawn", "first_stdout", "execution", "parse"):
+    for key in ("total", "queued", "spawn", "first_stdout", "first_content", "execution", "parse"):
         value = stats.get(key)
         rendered = "null" if value is None else f"{value}ms"
         parts.append(f"{key}={rendered}")
@@ -133,6 +144,12 @@ def _format_token_stats(usage: dict[str, int], source: str) -> str:
         f"total={usage['total_tokens']} "
         f"source={source}"
     )
+
+
+def _format_tool_stats(tools: tuple[str, ...] | list[str]) -> str:
+    if not tools:
+        return "tools: none"
+    return "tools: " + ", ".join(tools)
 
 
 def cmd_status() -> int:

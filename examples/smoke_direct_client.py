@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 
 from sub_api import SubApiClient
-from sub_api.core.backends.base import BackendResult, LatencyStats, TokenUsage
+from sub_api.core.backends.base import BackendResult, LatencyStats, StreamChunk, TokenUsage
 
 
 class FakeBackend:
@@ -33,8 +33,16 @@ class FakeBackend:
         )
 
     def stream(self, prompt: str, model: str | None = None):
-        yield "fake "
-        yield f"stream ({model or 'default'}): {prompt}"
+        for event in self.stream_events(prompt, model=model):
+            if event.text:
+                yield event.text
+
+    def stream_events(self, prompt: str, model: str | None = None):
+        yield StreamChunk(text="fake ")
+        yield StreamChunk(text=f"stream ({model or 'default'}): {prompt}")
+        yield StreamChunk(
+            latency=LatencyStats(total=12, spawn=1, first_stdout=2, execution=10, parse=0)
+        )
 
 
 def main() -> None:

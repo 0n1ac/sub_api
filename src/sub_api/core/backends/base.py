@@ -22,6 +22,7 @@ class LatencyStats:
     queued: int | None = None
     spawn: int | None = None
     first_stdout: int | None = None
+    first_content: int | None = None
     execution: int | None = None
     parse: int | None = None
 
@@ -31,6 +32,7 @@ class LatencyStats:
             "queued": self.queued,
             "spawn": self.spawn,
             "first_stdout": self.first_stdout,
+            "first_content": self.first_content,
             "execution": self.execution,
             "parse": self.parse,
         }
@@ -40,6 +42,13 @@ class LatencyStats:
 class ExecResult:
     stdout: str
     latency: LatencyStats
+
+
+@dataclass(frozen=True)
+class StreamChunk:
+    text: str | None = None
+    latency: LatencyStats | None = None
+    tool_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -62,6 +71,7 @@ class BackendResult:
     content: str
     latency: LatencyStats
     usage: TokenUsage
+    tools: tuple[str, ...] = ()
 
 
 class Backend(ABC):
@@ -96,14 +106,23 @@ class Backend(ABC):
             total=_elapsed_ms(total_start),
             spawn=exec_result.latency.spawn,
             first_stdout=exec_result.latency.first_stdout,
+            first_content=exec_result.latency.first_stdout,
             execution=exec_result.latency.execution,
             parse=parse_ms,
         )
-        return BackendResult(content=content, latency=latency, usage=usage)
+        tools = tuple(extract_tool_names(exec_result.stdout))
+        return BackendResult(content=content, latency=latency, usage=usage, tools=tools)
 
     def stream(self, prompt: str, model: str | None = None) -> Iterator[str]:
+        for event in self.stream_events(prompt, model=model):
+            if event.text:
+                yield event.text
+
+    def stream_events(self, prompt: str, model: str | None = None) -> Iterator[StreamChunk]:
         if not self.supports_stdout_streaming:
-            yield self.call(prompt, model=model).content
+            result = self.call(prompt, model=model)
+            yield StreamChunk(text=result.content)
+            yield StreamChunk(latency=result.latency)
             return
 
         self.ensure_available()
@@ -135,7 +154,7 @@ class Backend(ABC):
     def run_cli(self, prompt: str, model: str | None = None) -> ExecResult:
         raise NotImplementedError
 
-    def run_cli_stream(self, prompt: str, model: str | None = None) -> Iterator[str]:
+    def run_cli_stream(self, prompt: str, model: str | None = None) -> Iterator[StreamChunk]:
         raise BackendExecutionError(f"{self.cli_name} does not support stdout streaming.")
 
     def parse_output(self, stdout: str) -> str:
@@ -238,7 +257,7 @@ class Backend(ABC):
         *args: str,
         env: Mapping[str, str] | None = None,
         timeout: float | None = None,
-    ) -> Iterator[str]:
+    ) -> Iterator[StreamChunk]:
         effective_timeout = self.timeout if timeout is None else timeout
         total_start = time.perf_counter()
         process = subprocess.Popen(
@@ -248,8 +267,11 @@ class Backend(ABC):
             env=dict(env) if env is not None else None,
             start_new_session=True,
         )
+        process_started_at = time.perf_counter()
+        spawn_ms = _interval_ms(total_start, process_started_at)
 
         stderr_chunks: list[bytes] = []
+        first_stdout_at: float | None = None
         selector = selectors.DefaultSelector()
         assert process.stdout is not None
         assert process.stderr is not None
@@ -276,7 +298,9 @@ class Backend(ABC):
                         continue
 
                     if key.fileobj is process.stdout:
-                        yield chunk.decode("utf-8", errors="replace")
+                        if first_stdout_at is None:
+                            first_stdout_at = time.perf_counter()
+                        yield StreamChunk(text=chunk.decode("utf-8", errors="replace"))
                     else:
                         key.data.append(chunk)
 
@@ -289,6 +313,7 @@ class Backend(ABC):
 
             try:
                 return_code = process.wait(timeout=1)
+                process_finished_at = time.perf_counter()
             except subprocess.TimeoutExpired as exc:
                 _kill_process_group(process.pid)
                 _drain_process_pipes(process, [], stderr_chunks)
@@ -302,7 +327,9 @@ class Backend(ABC):
 
         remaining_stdout = process.stdout.read()
         if remaining_stdout:
-            yield remaining_stdout.decode("utf-8", errors="replace")
+            if first_stdout_at is None:
+                first_stdout_at = time.perf_counter()
+            yield StreamChunk(text=remaining_stdout.decode("utf-8", errors="replace"))
         remaining_stderr = process.stderr.read()
         if remaining_stderr:
             stderr_chunks.append(remaining_stderr)
@@ -311,6 +338,14 @@ class Backend(ABC):
         if return_code != 0:
             message = stderr.strip() or f"exit code {return_code}"
             raise BackendExecutionError(f"{self.cli_name} failed: {message}")
+
+        yield StreamChunk(
+            latency=LatencyStats(
+                spawn=spawn_ms,
+                first_stdout=_interval_ms(total_start, first_stdout_at),
+                execution=_interval_ms(process_started_at, process_finished_at),
+            )
+        )
 
     def _model_args(self, model: str | None) -> list[str]:
         if model is None:
@@ -349,14 +384,24 @@ def parse_jsonish_text(stdout: str) -> str:
 
 
 def parse_stream_json_text(
-    chunks: Iterator[str],
+    chunks: Iterator[str | StreamChunk],
     *,
     prompt_to_skip: str | None = None,
-) -> Iterator[str]:
+) -> Iterator[StreamChunk]:
     buffer = ""
     emitted_text = ""
     for chunk in chunks:
-        buffer += chunk
+        if isinstance(chunk, StreamChunk):
+            if chunk.latency is not None:
+                yield chunk
+                continue
+            if chunk.text is None:
+                continue
+            raw_chunk = chunk.text
+        else:
+            raw_chunk = chunk
+
+        buffer += raw_chunk
         lines = buffer.splitlines(keepends=True)
         if lines and not lines[-1].endswith(("\n", "\r")):
             buffer = lines.pop()
@@ -364,23 +409,33 @@ def parse_stream_json_text(
             buffer = ""
 
         for line in lines:
-            text = _stream_json_line_text(line.strip())
+            stripped_line = line.strip()
+            tool_name = _stream_json_line_tool_name(stripped_line)
+            if tool_name:
+                yield StreamChunk(tool_name=tool_name)
+
+            text = _stream_json_line_text(stripped_line)
             if text:
                 if prompt_to_skip:
                     text = _strip_prompt_echo(text, prompt_to_skip)
                 delta = _dedupe_stream_text(emitted_text, text)
                 if delta:
                     emitted_text += delta
-                    yield delta
+                    yield StreamChunk(text=delta)
 
     if buffer:
-        text = _stream_json_line_text(buffer.strip())
+        stripped_buffer = buffer.strip()
+        tool_name = _stream_json_line_tool_name(stripped_buffer)
+        if tool_name:
+            yield StreamChunk(tool_name=tool_name)
+
+        text = _stream_json_line_text(stripped_buffer)
         if text:
             if prompt_to_skip:
                 text = _strip_prompt_echo(text, prompt_to_skip)
             delta = _dedupe_stream_text(emitted_text, text)
             if delta:
-                yield delta
+                yield StreamChunk(text=delta)
 
 
 def extract_text(value: object) -> str:
@@ -420,6 +475,18 @@ def _stream_json_line_text(line: str) -> str:
     if event_type in {"result", "final", "message"}:
         return extract_text(event)
     return ""
+
+
+def _stream_json_line_tool_name(line: str) -> str | None:
+    if not line:
+        return None
+
+    try:
+        event = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+
+    return _extract_tool_name(event)
 
 
 def _dedupe_stream_text(emitted_text: str, text: str) -> str:
@@ -485,6 +552,73 @@ def _is_user_stream_event(value: object) -> bool:
         return True
 
     return False
+
+
+def extract_tool_names(stdout: str) -> list[str]:
+    try:
+        data = json.loads(stdout)
+    except json.JSONDecodeError:
+        names: list[str] = []
+        for line in stdout.splitlines():
+            name = _stream_json_line_tool_name(line.strip())
+            if name:
+                names.append(name)
+        return _dedupe_preserving_order(names)
+
+    return _dedupe_preserving_order(_collect_tool_names(data))
+
+
+def _collect_tool_names(value: object) -> list[str]:
+    names: list[str] = []
+
+    name = _extract_tool_name(value)
+    if name:
+        names.append(name)
+
+    if isinstance(value, dict):
+        for nested in value.values():
+            names.extend(_collect_tool_names(nested))
+    elif isinstance(value, list):
+        for item in value:
+            names.extend(_collect_tool_names(item))
+
+    return names
+
+
+def _extract_tool_name(value: object) -> str | None:
+    if not isinstance(value, dict):
+        return None
+
+    for key in ("tool_name", "toolName", "name"):
+        raw = value.get(key)
+        if isinstance(raw, str) and raw:
+            event_type = value.get("type")
+            if key != "name" or _looks_like_tool_event(event_type):
+                return raw
+
+    tool = value.get("tool")
+    if isinstance(tool, str) and tool:
+        return tool
+    if isinstance(tool, dict):
+        raw = tool.get("name")
+        if isinstance(raw, str) and raw:
+            return raw
+
+    return None
+
+
+def _looks_like_tool_event(event_type: object) -> bool:
+    return isinstance(event_type, str) and "tool" in event_type
+
+
+def _dedupe_preserving_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        if value not in seen:
+            seen.add(value)
+            result.append(value)
+    return result
 
 
 def _extract_stream_delta_text(value: object) -> str:

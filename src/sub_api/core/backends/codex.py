@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Iterator
 
-from sub_api.core.backends.base import Backend, ExecResult, parse_stream_json_text
+from sub_api.core.backends.base import Backend, ExecResult, StreamChunk, parse_stream_json_text
 
 
 class CodexBackend(Backend):
@@ -17,7 +17,7 @@ class CodexBackend(Backend):
             prompt,
         )
 
-    def run_cli_stream(self, prompt: str, model: str | None = None) -> Iterator[str]:
+    def run_cli_stream(self, prompt: str, model: str | None = None) -> Iterator[StreamChunk]:
         yield from parse_stream_json_text(
             self._exec_stream(
                 self.cli_name,

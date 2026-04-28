@@ -164,6 +164,7 @@ sub_api ask "Explain decorators in Python." --backend gemini --stats
 ```bash
 sub_api ask "Write a short intro." --backend claude --stream
 sub_api ask "Write a short intro." --backend claude --stream --stats
+sub_api ask "Write a short intro." --backend gemini --stream --disable-tools
 ```
 
 **Pipe content from standard input:**
@@ -287,6 +288,8 @@ SUB_API_SERVER_MAX_CONCURRENT_PER_BACKEND=1
 SUB_API_DEFAULT_MODEL_GEMINI=gemini-2.5-pro
 SUB_API_DEFAULT_MODEL_CLAUDE=sonnet
 SUB_API_DEFAULT_MODEL_CODEX=gpt-5
+# Disable Gemini CLI tools
+# SUB_API_GEMINI_DISABLE_TOOLS=true
 ```
 
 ## ⏱️ Latency Stats
@@ -302,6 +305,7 @@ SUB_API_DEFAULT_MODEL_CODEX=gpt-5
       "queued": 0,
       "spawn": 12,
       "first_stdout": 2180,
+      "first_content": 2180,
       "execution": 2120,
       "parse": 131
     }
@@ -311,7 +315,8 @@ SUB_API_DEFAULT_MODEL_CODEX=gpt-5
 
 - `queued`: time spent waiting for a concurrency slot
 - `spawn`: process creation overhead
-- `first_stdout`: time until the first stdout byte
+- `first_stdout`: time until the first stdout event
+- `first_content`: time until the first assistant text chunk
 - `execution`: process runtime
 - `parse`: stdout parsing / JSON decoding time
 - `total`: separately measured wall-clock time, not the sum of the other fields
@@ -355,6 +360,8 @@ Possible sources:
 - `heuristic`: fallback estimate, currently length-based
 
 Streaming calls also expose latency and token stats after the stream is exhausted. Token usage may be estimated for streaming responses because some backend streaming formats do not include native usage metadata.
+
+When backend tools are used, `sub_api.tools` and CLI `tools:` stats show the tool names observed in the backend output. For Gemini, set `SUB_API_GEMINI_DISABLE_TOOLS=true` or pass `--disable-tools` in the CLI to disable tools for a call.
 
 ## ⚠️ Limitations
 

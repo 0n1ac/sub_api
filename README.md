@@ -155,6 +155,9 @@ sub_api ask "Write a short intro." --backend claude --stream
 
 # Stream chunks and print latency/token stats after completion
 sub_api ask "Write a short intro." --backend claude --stream --stats
+
+# Disable backend tools for this call when supported
+sub_api ask "Write a short intro." --backend gemini --stream --disable-tools
 ```
 
 ### 4. Local API Server
@@ -242,6 +245,7 @@ OpenAI-style responses include `sub_api.latency_ms`:
       "queued": 0,
       "spawn": 12,
       "first_stdout": 2180,
+      "first_content": 2180,
       "execution": 2120,
       "parse": 131
     }
@@ -249,7 +253,7 @@ OpenAI-style responses include `sub_api.latency_ms`:
 }
 ```
 
-`queued` measures time spent waiting for a concurrency slot, `spawn` measures process creation overhead, `first_stdout` measures time until the first stdout byte, `execution` measures process runtime, and `parse` measures output parsing time. `total` is measured separately as wall-clock time. Stage values may be `null` if a stage cannot be measured.
+`queued` measures time spent waiting for a concurrency slot, `spawn` measures process creation overhead, `first_stdout` measures time until the first stdout event, `first_content` measures time until the first assistant text chunk, `execution` measures process runtime, and `parse` measures output parsing time. `total` is measured separately as wall-clock time. Stage values may be `null` if a stage cannot be measured.
 
 ## Concurrency Policy
 
@@ -283,6 +287,8 @@ Possible sources:
 - `heuristic`: fallback estimate, currently length-based
 
 Streaming calls expose latency and token stats after the stream is exhausted. Token usage may be estimated for streaming responses because some backend streaming formats do not include native usage metadata.
+
+When backend tools are used, `sub_api.tools` and CLI `tools:` stats show the tool names observed in the backend output. For Gemini, set `SUB_API_GEMINI_DISABLE_TOOLS=true` or pass `--disable-tools` in the CLI to disable tools for a call.
 
 ## 📄 License
 

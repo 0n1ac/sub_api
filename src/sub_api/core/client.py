@@ -135,11 +135,22 @@ class SubApiClient:
             stream_start: float | None = None
             first_chunk_at: float | None = None
             queued_ms: int | None = None
+            backend_latency: LatencyStats | None = None
             parts: list[str] = []
+            tools: list[str] = []
 
             if self._concurrency_limiter is None:
                 stream_start = time.perf_counter()
-                for chunk in backend_impl.stream(prompt, model=selection.model):
+                for event in backend_impl.stream_events(prompt, model=selection.model):
+                    if event.latency is not None:
+                        backend_latency = event.latency
+                        continue
+                    if event.tool_name:
+                        tools.append(event.tool_name)
+                        continue
+                    if event.text is None:
+                        continue
+                    chunk = event.text
                     if first_chunk_at is None:
                         first_chunk_at = time.perf_counter()
                     parts.append(chunk)
@@ -157,7 +168,16 @@ class SubApiClient:
                 ) as slot:
                     queued_ms = slot.queued_ms
                     stream_start = time.perf_counter()
-                    for chunk in backend_impl.stream(prompt, model=selection.model):
+                    for event in backend_impl.stream_events(prompt, model=selection.model):
+                        if event.latency is not None:
+                            backend_latency = event.latency
+                            continue
+                        if event.tool_name:
+                            tools.append(event.tool_name)
+                            continue
+                        if event.text is None:
+                            continue
+                        chunk = event.text
                         if first_chunk_at is None:
                             first_chunk_at = time.perf_counter()
                         parts.append(chunk)
@@ -170,11 +190,22 @@ class SubApiClient:
                 latency=LatencyStats(
                     total=_elapsed_ms(total_start),
                     queued=queued_ms,
-                    first_stdout=_interval_ms(total_start, first_chunk_at),
-                    execution=_interval_ms(stream_start, finished_at),
+                    spawn=backend_latency.spawn if backend_latency else None,
+                    first_stdout=(
+                        backend_latency.first_stdout
+                        if backend_latency and backend_latency.first_stdout is not None
+                        else _interval_ms(total_start, first_chunk_at)
+                    ),
+                    first_content=_interval_ms(total_start, first_chunk_at),
+                    execution=(
+                        backend_latency.execution
+                        if backend_latency and backend_latency.execution is not None
+                        else _interval_ms(stream_start, finished_at)
+                    ),
                     parse=0,
                 ),
                 usage=estimate_usage(prompt=prompt, completion=content, model=selection.model),
+                tools=tuple(_dedupe_preserving_order(tools)),
             )
             stream_result.result = result
             self.last_result = result
@@ -261,6 +292,7 @@ class _CompletionsResource:
             sub_api={
                 "backend": selection.backend,
                 "latency_ms": result.latency.as_dict(),
+                "tools": list(result.tools),
                 "usage": {
                     "source": result.usage.source,
                 },
@@ -317,6 +349,7 @@ def _chat_completion_chunks(
         sub_api = {
             "backend": backend,
             "latency_ms": result.latency.as_dict(),
+            "tools": list(result.tools),
             "usage": {
                 "source": result.usage.source,
             },
@@ -339,3 +372,13 @@ def _interval_ms(start: float | None, end: float | None) -> int | None:
     if start is None or end is None:
         return None
     return int(round((end - start) * 1000))
+
+
+def _dedupe_preserving_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        if value not in seen:
+            seen.add(value)
+            result.append(value)
+    return result

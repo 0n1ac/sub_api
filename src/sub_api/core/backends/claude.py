@@ -4,7 +4,7 @@ import os
 import tempfile
 from typing import Iterator
 
-from sub_api.core.backends.base import Backend, ExecResult, parse_stream_json_text
+from sub_api.core.backends.base import Backend, ExecResult, StreamChunk, parse_stream_json_text
 
 
 class ClaudeBackend(Backend):
@@ -22,7 +22,7 @@ class ClaudeBackend(Backend):
                 env=env,
             )
 
-    def run_cli_stream(self, prompt: str, model: str | None = None) -> Iterator[str]:
+    def run_cli_stream(self, prompt: str, model: str | None = None) -> Iterator[StreamChunk]:
         with tempfile.TemporaryDirectory(prefix="sub-api-claude-") as temp_dir:
             env = os.environ.copy()
             env["CLAUDE_CONFIG_DIR"] = temp_dir
